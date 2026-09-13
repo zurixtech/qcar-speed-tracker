@@ -22,9 +22,11 @@ export default defineConfig({
   },
   projects: [
     {
-      name: "chromium",
+      // La app es solo para celular: los tests corren en un telefono emulado
+      // (viewport chico, touch, sin mouse), que es el unico entorno real.
+      name: "mobile-chrome",
       use: {
-        ...devices["Desktop Chrome"],
+        ...devices["Pixel 5"],
         launchOptions: {
           args: [
             // WebGL por software: en headless no hay GPU, pero TF.js igual

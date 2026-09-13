@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import ControlPanel from "@/components/ControlPanel";
+import Sheet from "@/components/Sheet";
 import VideoStage from "@/components/VideoStage";
 import ViolationsPanel from "@/components/ViolationsPanel";
-import { useRadar, type Source } from "@/hooks/useRadar";
+import { useRadar, type Facing, type Source } from "@/hooks/useRadar";
 import { unitLabel } from "@/lib/format";
 import type { Quad } from "@/lib/homography";
 import { DEFAULT_SETTINGS, type Settings } from "@/lib/settings";
@@ -18,6 +19,14 @@ import {
 
 const DEMO_VIDEO = "/demo/traffic.mp4";
 
+type SheetTab = "settings" | "violations";
+
+/**
+ * La app es una sola pantalla de celular: camara a pantalla completa, los
+ * numeros encima del video y todo lo demas en una hoja que sube desde abajo.
+ * No hay layout de escritorio; en una pantalla grande se muestra la misma
+ * columna angosta, centrada.
+ */
 export default function RadarApp() {
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -30,12 +39,14 @@ export default function RadarApp() {
     getServerSettingsSnapshot,
   );
   const [calibrating, setCalibrating] = useState(false);
-  const [cameras, setCameras] = useState<MediaDeviceInfo[]>([]);
+  const [sheet, setSheet] = useState<SheetTab | null>(null);
+  const [facing, setFacing] = useState<Facing>("environment");
   const [hasDemo, setHasDemo] = useState(false);
 
   const radar = useRadar({ videoRef, canvasRef, settings });
   const running = radar.status === "running";
   const busy = radar.status === "loading-model" || radar.status === "starting";
+  const usingCamera = radar.source?.kind === "camera";
 
   useEffect(() => {
     let cancelled = false;
@@ -53,16 +64,6 @@ export default function RadarApp() {
     };
   }, []);
 
-  const refreshCameras = useCallback(async () => {
-    if (!navigator.mediaDevices?.enumerateDevices) return;
-    try {
-      const devices = await navigator.mediaDevices.enumerateDevices();
-      setCameras(devices.filter((d) => d.kind === "videoinput"));
-    } catch {
-      // enumerateDevices puede fallar sin permisos: no es critico.
-    }
-  }, []);
-
   const patch = useCallback((p: Partial<Settings>) => {
     updateSettings((prev) => ({ ...prev, ...p }));
   }, []);
@@ -73,11 +74,17 @@ export default function RadarApp() {
 
   const startSource = useCallback(
     async (source: Source) => {
+      setSheet(null);
       await radar.start(source);
-      if (source.kind === "camera") void refreshCameras();
     },
-    [radar, refreshCameras],
+    [radar],
   );
+
+  const flipCamera = useCallback(() => {
+    const next: Facing = facing === "environment" ? "user" : "environment";
+    setFacing(next);
+    void startSource({ kind: "camera", facing: next });
+  }, [facing, startSource]);
 
   const onPickFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -91,180 +98,233 @@ export default function RadarApp() {
     [startSource],
   );
 
+  // Calibrar es tocar el video: la hoja de ajustes se corre del medio.
+  const toggleCalibrating = useCallback(() => {
+    setCalibrating((v) => !v);
+    setSheet(null);
+  }, []);
+
   return (
-    <main className="mx-auto w-full max-w-7xl px-4 py-6 md:px-6">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-white">
+    <div className="flex min-h-dvh justify-center bg-black">
+      <DesktopHint />
+
+      <main className="relative flex h-dvh w-full max-w-[520px] flex-col overflow-hidden bg-ink">
+        <header
+          className="flex shrink-0 items-center justify-between gap-2 px-4 pb-2"
+          style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
+        >
+          <h1 className="flex items-center gap-2 text-base font-bold tracking-tight text-white">
             QCar Radar
-            <span className="ml-2 rounded-full bg-amber-500/20 px-2 py-0.5 align-middle text-[10px] font-semibold tracking-wide text-amber-300 uppercase">
+            <span className="rounded-full bg-amber-500/20 px-1.5 py-0.5 text-[9px] font-semibold tracking-wide text-amber-300 uppercase">
               POC
             </span>
           </h1>
-          <p className="mt-1 text-sm text-slate-400">
-            Deteccion de vehiculos y estimacion de velocidad, 100% en el navegador.
-          </p>
-        </div>
-        <StatusBadge status={radar.status} backend={radar.backend} fps={radar.stats.fps} />
-      </header>
+          <StatusBadge status={radar.status} fps={radar.stats.fps} />
+        </header>
 
-      <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="space-y-4">
-          <VideoStage
-            videoRef={videoRef}
-            canvasRef={canvasRef}
-            calibration={settings.calibration}
-            calibrationValid={radar.calibrationValid}
-            calibrating={calibrating}
-            onQuadChange={setQuad}
-            placeholder={
-              radar.status === "idle" || radar.status === "error" ? (
-                <div className="max-w-sm">
-                  <p className="text-sm font-medium text-slate-200">
-                    Elegi una fuente para empezar
-                  </p>
-                  <p className="mt-2 text-xs leading-relaxed text-slate-400">
-                    Apunta la camara a la calzada desde un punto fijo, o carga un video
-                    grabado para probar. Despues ajusta la zona y sus medidas reales.
-                  </p>
-                  {radar.error && (
-                    <p
-                      data-testid="radar-error"
-                      className="mt-3 rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-300"
-                    >
-                      {radar.error}
-                    </p>
-                  )}
-                </div>
-              ) : busy ? (
-                <p data-testid="radar-busy" className="text-sm text-slate-300">
-                  {radar.status === "loading-model"
-                    ? "Descargando el modelo de deteccion…"
-                    : "Iniciando la fuente de video…"}
+        <VideoStage
+          videoRef={videoRef}
+          canvasRef={canvasRef}
+          calibration={settings.calibration}
+          calibrationValid={radar.calibrationValid}
+          calibrating={calibrating}
+          onQuadChange={setQuad}
+          placeholder={
+            radar.status === "idle" || radar.status === "error" ? (
+              <div className="max-w-xs">
+                <p className="text-base font-semibold text-slate-100">
+                  Apunta el telefono a la calle
                 </p>
-              ) : null
-            }
+                <p className="mt-2 text-xs leading-relaxed text-slate-400">
+                  Apoyalo firme, tocá <strong>Camara</strong> y el radar sigue hasta{" "}
+                  {settings.maxVehicles === 1 ? "un vehiculo" : "dos vehiculos"} a la vez,
+                  con la velocidad adentro del recuadro.
+                </p>
+                {radar.error && (
+                  <p
+                    data-testid="radar-error"
+                    className="mt-3 rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-300"
+                  >
+                    {radar.error}
+                  </p>
+                )}
+              </div>
+            ) : busy ? (
+              <p data-testid="radar-busy" className="text-sm text-slate-200">
+                {radar.status === "loading-model"
+                  ? "Descargando el modelo de deteccion…"
+                  : "Iniciando la camara…"}
+              </p>
+            ) : null
+          }
+        >
+          <StatsStrip
+            vehicles={radar.stats.vehicles}
+            detected={radar.stats.detected}
+            measuring={radar.stats.measuring}
+            speeding={radar.stats.speeding}
+            limit={`${settings.speedLimit} ${unitLabel(settings.units)}`}
+            max={settings.maxVehicles}
           />
 
-          <div className="flex flex-wrap items-center gap-2">
+          {calibrating && (
+            <div className="pointer-events-auto absolute inset-x-0 bottom-3 z-30 flex flex-col items-center gap-2 px-4">
+              <p className="rounded-full bg-black/70 px-3 py-1.5 text-center text-[11px] text-slate-200">
+                Arrastra las 4 esquinas sobre el tramo de calle que queres medir.
+              </p>
+              <button
+                type="button"
+                data-testid="finish-calibration"
+                onClick={toggleCalibrating}
+                className="rounded-full bg-sky-500 px-6 py-3 text-sm font-semibold text-white shadow-lg"
+              >
+                Listo
+              </button>
+            </div>
+          )}
+        </VideoStage>
+
+        <nav
+          className="shrink-0 space-y-3 border-t border-edge bg-ink px-4 pt-3"
+          style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
+        >
+          <div className="flex items-center gap-2">
             {!running ? (
               <>
                 <button
                   type="button"
                   data-testid="start-camera"
                   disabled={busy}
-                  onClick={() => void startSource({ kind: "camera" })}
-                  className="rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-sky-400 disabled:opacity-50"
+                  onClick={() => void startSource({ kind: "camera", facing })}
+                  className="flex-1 rounded-2xl bg-sky-500 py-3.5 text-sm font-semibold text-white active:bg-sky-600 disabled:opacity-50"
                 >
-                  Usar camara
+                  Camara
                 </button>
                 <button
                   type="button"
                   data-testid="pick-file"
                   disabled={busy}
                   onClick={() => fileInputRef.current?.click()}
-                  className="rounded-lg border border-edge px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-panel disabled:opacity-50"
+                  className="rounded-2xl border border-edge px-4 py-3.5 text-sm font-medium text-slate-200 active:bg-panel disabled:opacity-50"
                 >
-                  Cargar video
+                  Video
                 </button>
                 {hasDemo && (
                   <button
                     type="button"
                     data-testid="start-demo"
                     disabled={busy}
-                    onClick={() =>
-                      void startSource({ kind: "file", url: DEMO_VIDEO, name: "demo" })
-                    }
-                    className="rounded-lg border border-edge px-4 py-2 text-sm font-medium text-slate-200 transition hover:bg-panel disabled:opacity-50"
+                    onClick={() => void startSource({ kind: "file", url: DEMO_VIDEO, name: "demo" })}
+                    className="rounded-2xl border border-edge px-4 py-3.5 text-sm font-medium text-slate-200 active:bg-panel disabled:opacity-50"
                   >
-                    Video de demo
+                    Demo
                   </button>
                 )}
               </>
             ) : (
-              <button
-                type="button"
-                data-testid="stop"
-                onClick={radar.stop}
-                className="rounded-lg bg-red-500 px-4 py-2 text-sm font-semibold text-white transition hover:bg-red-400"
-              >
-                Detener
-              </button>
-            )}
-
-            <input
-              ref={fileInputRef}
-              data-testid="file-input"
-              type="file"
-              accept="video/*"
-              onChange={onPickFile}
-              className="hidden"
-            />
-
-            {cameras.length > 1 && !running && (
-              <select
-                data-testid="camera-select"
-                onChange={(e) => void startSource({ kind: "camera", deviceId: e.target.value })}
-                className="rounded-lg border border-edge bg-ink px-3 py-2 text-sm text-slate-200"
-                defaultValue=""
-              >
-                <option value="" disabled>
-                  Elegir camara…
-                </option>
-                {cameras.map((c, i) => (
-                  <option key={c.deviceId} value={c.deviceId}>
-                    {c.label || `Camara ${i + 1}`}
-                  </option>
-                ))}
-              </select>
+              <>
+                <button
+                  type="button"
+                  data-testid="stop"
+                  onClick={radar.stop}
+                  className="flex-1 rounded-2xl bg-red-500 py-3.5 text-sm font-semibold text-white active:bg-red-600"
+                >
+                  Detener
+                </button>
+                {usingCamera && (
+                  <button
+                    type="button"
+                    data-testid="flip-camera"
+                    aria-label="Cambiar de camara"
+                    onClick={flipCamera}
+                    className="rounded-2xl border border-edge px-4 py-3.5 text-sm font-medium text-slate-200 active:bg-panel"
+                  >
+                    Girar
+                  </button>
+                )}
+              </>
             )}
           </div>
 
-          <StatsBar
-            vehicles={radar.stats.vehicles}
-            measuring={radar.stats.measuring}
-            speeding={radar.stats.speeding}
-            limit={`${settings.speedLimit} ${unitLabel(settings.units)}`}
-          />
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              data-testid="open-settings"
+              onClick={() => setSheet((s) => (s === "settings" ? null : "settings"))}
+              className="flex-1 rounded-xl border border-edge py-2.5 text-xs font-medium text-slate-300 active:bg-panel"
+            >
+              Ajustes
+            </button>
+            <button
+              type="button"
+              data-testid="open-violations"
+              onClick={() => setSheet((s) => (s === "violations" ? null : "violations"))}
+              className="flex-1 rounded-xl border border-edge py-2.5 text-xs font-medium text-slate-300 active:bg-panel"
+            >
+              Infracciones
+              <span data-testid="violation-badge" className="ml-1 tabular-nums text-slate-500">
+                ({radar.violations.length})
+              </span>
+            </button>
+          </div>
+        </nav>
 
-          <ViolationsPanel
-            violations={radar.violations}
-            units={settings.units}
-            onClear={radar.clearViolations}
-          />
+        <input
+          ref={fileInputRef}
+          data-testid="file-input"
+          type="file"
+          accept="video/*"
+          onChange={onPickFile}
+          className="hidden"
+        />
 
-          <p className="rounded-xl border border-amber-500/25 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed text-amber-200/90">
-            <strong>Prueba de concepto.</strong> La velocidad es una estimacion basada en la
-            calibracion que cargues y en como se ve el vehiculo desde la camara. No sirve
-            como prueba legal ni reemplaza a un radar homologado.
-          </p>
-        </div>
-
-        <aside>
-          <ControlPanel
-            settings={settings}
-            onChange={patch}
-            onReset={() => updateSettings(DEFAULT_SETTINGS)}
-            calibrating={calibrating}
-            onToggleCalibrating={() => setCalibrating((v) => !v)}
-            calibrationValid={radar.calibrationValid}
-            modelLocked={running || busy}
-          />
-        </aside>
-      </div>
-    </main>
+        <Sheet
+          open={sheet !== null}
+          title={sheet === "violations" ? "Infracciones" : "Ajustes"}
+          onClose={() => setSheet(null)}
+        >
+          {sheet === "settings" && (
+            <>
+              <ControlPanel
+                settings={settings}
+                onChange={patch}
+                onReset={() => updateSettings(DEFAULT_SETTINGS)}
+                calibrating={calibrating}
+                onToggleCalibrating={toggleCalibrating}
+                calibrationValid={radar.calibrationValid}
+                modelLocked={running || busy}
+              />
+              <p className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/90">
+                <strong>Prueba de concepto.</strong> La velocidad es una estimacion basada en la
+                calibracion y en el angulo de la camara. No sirve como prueba legal.
+              </p>
+            </>
+          )}
+          {sheet === "violations" && (
+            <ViolationsPanel
+              violations={radar.violations}
+              units={settings.units}
+              onClear={radar.clearViolations}
+            />
+          )}
+        </Sheet>
+      </main>
+    </div>
   );
 }
 
-function StatusBadge({
-  status,
-  backend,
-  fps,
-}: {
-  status: string;
-  backend: string | null;
-  fps: number;
-}) {
+/** En una pantalla grande la app no cambia: solo avisa que es para el celular. */
+function DesktopHint() {
+  return (
+    <p className="pointer-events-none fixed top-1/2 left-8 hidden w-56 -translate-y-1/2 text-xs leading-relaxed text-slate-500 xl:block">
+      <strong className="block text-slate-300">QCar Radar es una app de celular.</strong>
+      Abri esta pagina en el telefono: necesita la camara trasera apuntando a la calle. Aca la
+      ves tal cual se ve en un movil.
+    </p>
+  );
+}
+
+function StatusBadge({ status, fps }: { status: string; fps: number }) {
   const tone =
     status === "running"
       ? "bg-emerald-500/15 text-emerald-300"
@@ -274,9 +334,9 @@ function StatusBadge({
 
   const text =
     status === "running"
-      ? `En vivo · ${fps} fps${backend ? ` · ${backend}` : ""}`
+      ? `En vivo · ${fps} fps`
       : status === "loading-model"
-        ? "Cargando modelo…"
+        ? "Cargando…"
         : status === "starting"
           ? "Iniciando…"
           : status === "error"
@@ -287,40 +347,78 @@ function StatusBadge({
     <span
       data-testid="radar-status"
       data-status={status}
-      className={`rounded-full px-3 py-1.5 text-xs font-semibold tabular-nums ${tone}`}
+      className={`rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums ${tone}`}
     >
       {text}
     </span>
   );
 }
 
-function StatsBar({
+/** Contadores flotando sobre el video: una sola fila, para no tapar la calzada. */
+function StatsStrip({
   vehicles,
+  detected,
   measuring,
   speeding,
   limit,
+  max,
 }: {
   vehicles: number;
+  detected: number;
   measuring: number;
   speeding: number;
   limit: string;
+  max: number;
 }) {
-  const items = [
-    { label: "En cuadro", value: vehicles, testId: "stat-vehicles" },
-    { label: "Midiendo", value: measuring, testId: "stat-measuring" },
-    { label: "En exceso", value: speeding, testId: "stat-speeding" },
-    { label: "Limite", value: limit, testId: "stat-limit" },
-  ];
   return (
-    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-      {items.map((it) => (
-        <div key={it.label} className="rounded-xl border border-edge bg-panel px-3 py-2">
-          <p className="text-[11px] tracking-wide text-slate-500 uppercase">{it.label}</p>
-          <p data-testid={it.testId} className="text-lg font-bold tabular-nums text-slate-100">
-            {it.value}
-          </p>
-        </div>
-      ))}
+    <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex flex-wrap gap-1 p-1.5">
+      <Chip label="Autos" tone={vehicles > 0 ? "live" : "default"}>
+        <strong data-testid="stat-vehicles" className="text-white">
+          {vehicles}
+        </strong>
+        <span className="text-slate-400">
+          /<span data-testid="stat-detected">{detected}</span>
+        </span>
+        <span className="text-slate-500"> max {max}</span>
+      </Chip>
+      <Chip label="Midiendo">
+        <strong data-testid="stat-measuring" className="text-white">
+          {measuring}
+        </strong>
+      </Chip>
+      <Chip label="Exceso" tone={speeding > 0 ? "alert" : "default"}>
+        <strong data-testid="stat-speeding" className="text-white">
+          {speeding}
+        </strong>
+      </Chip>
+      <Chip label="Limite">
+        <strong data-testid="stat-limit" className="text-white">
+          {limit}
+        </strong>
+      </Chip>
     </div>
+  );
+}
+
+function Chip({
+  label,
+  children,
+  tone = "default",
+}: {
+  label: string;
+  children: React.ReactNode;
+  tone?: "default" | "alert" | "live";
+}) {
+  const tones = {
+    default: "bg-black/55 text-slate-400",
+    live: "bg-black/55 text-emerald-300",
+    alert: "bg-red-500/80 text-white",
+  } as const;
+  return (
+    <span
+      className={`rounded-lg px-1.5 py-1 text-[10px] font-medium tabular-nums backdrop-blur-sm ${tones[tone]}`}
+    >
+      {label} {children}
+    </span>
   );
 }

@@ -11,6 +11,8 @@ body {
   background: var(--color-ink);
   color: #e6ecf8;
   -webkit-tap-highlight-color: transparent;
+  /* La app ocupa la pantalla: nada de scroll de pagina ni rebote elastico. */
+  overscroll-behavior: none;
 }
 
 body {
@@ -25,4 +27,9 @@ input[type="number"]::-webkit-inner-spin-button {
 }
 input[type="number"] {
   -moz-appearance: textfield;
+}
+
+/* Sliders comodos de arrastrar con el pulgar. */
+input[type="range"] {
+  touch-action: pan-y;
 }

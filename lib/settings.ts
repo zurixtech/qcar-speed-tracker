@@ -5,12 +5,17 @@ import type { Units } from "./types";
 
 export type ModelVariant = "lite_mobilenet_v2" | "mobilenet_v2";
 
+/** El radar mide de a un auto o de a dos: mas cajas en una pantalla de celular no se leen. */
+export type MaxVehicles = 1 | 2;
+
 export type Settings = {
   units: Units;
   /** Limite expresado en las unidades elegidas (km/h o mph). */
   speedLimit: number;
   /** Confianza minima del detector, 0..1. */
   minScore: number;
+  /** Cuantos vehiculos se siguen a la vez: uno o dos, nada mas. */
+  maxVehicles: MaxVehicles;
   modelVariant: ModelVariant;
   calibration: Calibration;
   /** Medir solo dentro de la zona calibrada (recomendado). */
@@ -39,6 +44,7 @@ export const DEFAULT_SETTINGS: Settings = {
   units: "kmh",
   speedLimit: 60,
   minScore: 0.5,
+  maxVehicles: 2,
   modelVariant: "lite_mobilenet_v2",
   calibration: {
     quad: DEFAULT_QUAD,
@@ -85,6 +91,7 @@ export function sanitizeSettings(value: unknown): Settings {
     units: raw.units === "mph" ? "mph" : "kmh",
     speedLimit: clamp(num(raw.speedLimit, DEFAULT_SETTINGS.speedLimit), 1, 400),
     minScore: clamp(num(raw.minScore, DEFAULT_SETTINGS.minScore), 0.05, 0.95),
+    maxVehicles: raw.maxVehicles === 1 ? 1 : 2,
     modelVariant: raw.modelVariant === "mobilenet_v2" ? "mobilenet_v2" : "lite_mobilenet_v2",
     calibration: {
       quad: sanitizeQuad(cal.quad),

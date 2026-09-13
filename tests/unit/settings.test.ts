@@ -118,6 +118,15 @@ describe("sanitizeSettings", () => {
     expect(sanitizeSettings({ units: 123 as unknown as string }).units).toBe("kmh");
   });
 
+  it("maxVehicles solo acepta 1 o 2, y cae en 2 con cualquier otra cosa", () => {
+    expect(sanitizeSettings({ maxVehicles: 1 }).maxVehicles).toBe(1);
+    expect(sanitizeSettings({ maxVehicles: 2 }).maxVehicles).toBe(2);
+    expect(sanitizeSettings({ maxVehicles: 7 as unknown as 1 }).maxVehicles).toBe(2);
+    expect(sanitizeSettings({ maxVehicles: 0 as unknown as 1 }).maxVehicles).toBe(2);
+    expect(sanitizeSettings({ maxVehicles: "muchos" as unknown as 1 }).maxVehicles).toBe(2);
+    expect(sanitizeSettings({}).maxVehicles).toBe(2);
+  });
+
   it("modelVariant solo acepta los dos valores validos", () => {
     expect(sanitizeSettings({ modelVariant: "mobilenet_v2" }).modelVariant).toBe("mobilenet_v2");
     expect(sanitizeSettings({ modelVariant: "lite_mobilenet_v2" }).modelVariant).toBe(
@@ -133,6 +142,7 @@ describe("sanitizeSettings", () => {
       units: "mph",
       speedLimit: 45,
       minScore: 0.6,
+      maxVehicles: 1,
       modelVariant: "mobilenet_v2",
       calibration: {
         quad: [

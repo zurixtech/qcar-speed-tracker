@@ -6,7 +6,7 @@
 import type { Projector } from "./homography";
 import { DEFAULT_SPEED_OPTIONS, estimateSpeed, type SpeedOptions } from "./speed";
 import { VehicleTracker, type TrackerOptions } from "./tracker";
-import type { Detection, TrackedVehicle, Violation } from "./types";
+import type { Detection, Track, TrackedVehicle, Violation } from "./types";
 
 export type EngineOptions = {
   speed: SpeedOptions;
@@ -21,6 +21,8 @@ export type EngineOptions = {
   minHits: number;
   /** Calidad minima del ajuste para aceptar una lectura como infraccion. */
   minQuality: number;
+  /** Cuantos vehiculos se miden a la vez (1 o 2). El resto se ignora. */
+  maxVehicles: number;
 };
 
 export const DEFAULT_ENGINE_OPTIONS: EngineOptions = {
@@ -31,10 +33,21 @@ export const DEFAULT_ENGINE_OPTIONS: EngineOptions = {
   confirmReadings: 3,
   minHits: 3,
   minQuality: 0.6,
+  maxVehicles: 2,
 };
 
 /** Cuantos puntos de la trayectoria se exponen para dibujar la estela. */
 const TRAIL_POINTS = 25;
+
+/**
+ * Cuanto pesa seguir mirando al auto que ya veniamos midiendo. Sin esta
+ * histeresis, dos autos de tamano parecido se roban el turno frame a frame y
+ * el recuadro salta de uno al otro.
+ */
+const STICKY_BONUS = 1.5;
+
+/** Un auto dentro de la zona calibrada es el que interesa: es el unico medible. */
+const IN_ZONE_BONUS = 1.6;
 
 type TrackState = {
   ema: number | null;
@@ -44,7 +57,10 @@ type TrackState = {
 };
 
 export type EngineFrame = {
+  /** Los vehiculos elegidos (a lo sumo `maxVehicles`), listos para dibujar. */
   vehicles: TrackedVehicle[];
+  /** Cuantos vehiculos hay en el cuadro, incluidos los que no se siguen. */
+  detected: number;
   /** Infracciones detectadas en este frame (una sola vez por vehiculo). */
   newViolations: Violation[];
 };
@@ -52,6 +68,8 @@ export type EngineFrame = {
 export class RadarEngine {
   private tracker: VehicleTracker;
   private state = new Map<number, TrackState>();
+  /** Ids elegidos en el frame anterior: dan la histeresis de `priority`. */
+  private selected = new Set<number>();
   private options: EngineOptions;
 
   constructor(options: Partial<EngineOptions> = {}) {
@@ -67,6 +85,7 @@ export class RadarEngine {
   reset(): void {
     this.tracker.reset();
     this.state.clear();
+    this.selected.clear();
   }
 
   /**
@@ -79,14 +98,23 @@ export class RadarEngine {
     const opts = this.options;
     const tracks = this.tracker.update(detections, t);
     const live = new Set<number>();
+    for (const track of tracks) live.add(track.id);
+
+    const visible = tracks.filter((track) => {
+      if (!track.samples.at(-1)) return false;
+      // Un track que perdimos hace unos frames se sigue mostrando (por su
+      // ultima caja conocida) solo si ya estaba confirmado.
+      return track.hits >= opts.minHits || track.missed === 0;
+    });
+
+    const chosen = this.select(visible, projector);
+    this.selected = new Set(chosen.map((track) => track.id));
+
     const vehicles: TrackedVehicle[] = [];
     const newViolations: Violation[] = [];
 
-    for (const track of tracks) {
-      live.add(track.id);
-      const last = track.samples.at(-1);
-      if (!last) continue;
-
+    for (const track of chosen) {
+      const last = track.samples.at(-1)!;
       const st = this.state.get(track.id) ?? { ema: null, peak: null, above: 0, violated: false };
       const estimate = estimateSpeed(track, projector, opts.speed);
 
@@ -116,10 +144,6 @@ export class RadarEngine {
 
       this.state.set(track.id, st);
 
-      // Un track que perdimos hace unos frames se sigue mostrando (interpolado
-      // por la ultima caja conocida) solo si ya estaba confirmado.
-      if (!confirmed && track.missed > 0) continue;
-
       vehicles.push({
         id: track.id,
         label: track.label,
@@ -135,10 +159,39 @@ export class RadarEngine {
       });
     }
 
+    // El estado se guarda mientras el track viva, aunque en este frame no haya
+    // sido elegido: si vuelve a entrar en foco no arranca de cero ni vuelve a
+    // labrar la misma infraccion.
     for (const id of this.state.keys()) {
       if (!live.has(id)) this.state.delete(id);
     }
 
-    return { vehicles, newViolations };
+    return { vehicles, detected: visible.length, newViolations };
+  }
+
+  /**
+   * Se queda con los `maxVehicles` vehiculos que importan. El criterio es el
+   * tamano de la caja (el auto mas grande es el mas cercano a la camara, el
+   * unico que se mide bien), con premio para el que esta dentro de la zona
+   * calibrada y para el que ya veniamos siguiendo.
+   */
+  private select(tracks: readonly Track[], projector: Projector | null): Track[] {
+    const limit = Math.max(1, Math.round(this.options.maxVehicles));
+    if (tracks.length <= limit) return [...tracks];
+
+    return [...tracks]
+      .map((track) => ({ track, priority: this.priority(track, projector) }))
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, limit)
+      .map((entry) => entry.track);
+  }
+
+  private priority(track: Track, projector: Projector | null): number {
+    const last = track.samples.at(-1);
+    if (!last) return 0;
+    let score = last.bbox.w * last.bbox.h;
+    if (projector?.inZone(last.ground)) score *= IN_ZONE_BONUS;
+    if (this.selected.has(track.id)) score *= STICKY_BONUS;
+    return score;
   }
 }

@@ -17,21 +17,29 @@ import { RadarEngine } from "@/lib/engine";
 import { runFrameLoop } from "@/lib/frames";
 import { createProjector, type Projector } from "@/lib/homography";
 import { DEFAULT_SPEED_OPTIONS } from "@/lib/speed";
+import { containRect } from "@/lib/view";
 import { limitToMps, type ModelVariant, type Settings } from "@/lib/settings";
 import type { Violation } from "@/lib/types";
 
+export type Facing = "environment" | "user";
+
 export type Source =
-  | { kind: "camera"; deviceId?: string }
+  | { kind: "camera"; deviceId?: string; facing?: Facing }
   | { kind: "file"; url: string; name: string };
 
 export type RadarStatus = "idle" | "loading-model" | "starting" | "running" | "error";
 
 export type RadarStats = {
   fps: number;
+  /** Vehiculos que el radar esta siguiendo (a lo sumo `maxVehicles`). */
   vehicles: number;
+  /** Vehiculos que hay en el cuadro, se sigan o no. */
+  detected: number;
   measuring: number;
   speeding: number;
 };
+
+const EMPTY_STATS: RadarStats = { fps: 0, vehicles: 0, detected: 0, measuring: 0, speeding: 0 };
 
 const MAX_VIOLATIONS = 100;
 const STATS_INTERVAL_MS = 250;
@@ -48,7 +56,7 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
   const [error, setError] = useState<string | null>(null);
   const [backend, setBackend] = useState<string | null>(null);
   const [source, setSource] = useState<Source | null>(null);
-  const [stats, setStats] = useState<RadarStats>({ fps: 0, vehicles: 0, measuring: 0, speeding: 0 });
+  const [stats, setStats] = useState<RadarStats>(EMPTY_STATS);
   const [violations, setViolations] = useState<Violation[]>([]);
 
   const engineRef = useRef<RadarEngine>(null);
@@ -81,6 +89,7 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
       limitMps: limitToMps(settings),
       smoothing: settings.smoothing,
       confirmReadings: settings.confirmReadings,
+      maxVehicles: settings.maxVehicles,
       speed: { ...DEFAULT_SPEED_OPTIONS, requireInZone: settings.requireInZone },
     });
   }, [settings]);
@@ -105,7 +114,7 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
     engineRef.current?.reset();
     setSource(null);
     setStatus("idle");
-    setStats({ fps: 0, vehicles: 0, measuring: 0, speeding: 0 });
+    setStats(EMPTY_STATS);
   }, [videoRef, canvasRef]);
 
   const captureSnapshot = useCallback((): string | undefined => {
@@ -140,7 +149,11 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
 
       const current = settingsRef.current;
       const detections = await detector.detect(video, current.minScore);
-      const { vehicles, newViolations } = engine.update(detections, t, projectorRef.current);
+      const { vehicles, detected: detectedCount, newViolations } = engine.update(
+        detections,
+        t,
+        projectorRef.current,
+      );
 
       syncCanvasSize(canvas, video);
       const ctx = canvas.getContext("2d");
@@ -152,6 +165,10 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
           showZone: current.showZone,
           showTrails: current.showTrails,
           calibrationValid: projectorRef.current !== null,
+          // El frame se dibuja "contenido" en el canvas: sin este rectangulo
+          // las cajas caen corridas en cuanto la pantalla no tiene la misma
+          // relacion de aspecto que la camara, que en el celular es siempre.
+          view: containRect(canvas.width, canvas.height, video.videoWidth, video.videoHeight),
         });
       }
 
@@ -169,6 +186,7 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
         setStats({
           fps: Math.round((frames * 1000) / elapsed),
           vehicles: vehicles.length,
+          detected: detectedCount,
           measuring: vehicles.filter((v) => v.mps !== null).length,
           speeding: vehicles.filter((v) => v.speeding).length,
         });
@@ -207,10 +225,13 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
         setStatus("starting");
 
         if (next.kind === "camera") {
+          // El celular se sostiene en vertical: se pide un frame alto y no muy
+          // grande, que es lo que el detector puede procesar a ritmo decente.
+          const size = { width: { ideal: 720 }, height: { ideal: 1280 } };
           const stream = await navigator.mediaDevices.getUserMedia({
             video: next.deviceId
-              ? { deviceId: { exact: next.deviceId }, width: { ideal: 1280 }, height: { ideal: 720 } }
-              : { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 720 } },
+              ? { deviceId: { exact: next.deviceId }, ...size }
+              : { facingMode: { ideal: next.facing ?? "environment" }, ...size },
             audio: false,
           });
           streamRef.current = stream;
