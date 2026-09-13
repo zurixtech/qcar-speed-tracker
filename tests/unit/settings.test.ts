@@ -155,6 +155,8 @@ describe("sanitizeSettings", () => {
         lengthMeters: 40,
       },
       requireInZone: false,
+      autoScale: false,
+      cameraFovDeg: 78,
       smoothing: 0.7,
       showZone: false,
       showTrails: false,

@@ -6,7 +6,14 @@
 import type { Projector } from "./homography";
 import { DEFAULT_SPEED_OPTIONS, estimateSpeed, type SpeedOptions } from "./speed";
 import { VehicleTracker, type TrackerOptions } from "./tracker";
-import type { Detection, Track, TrackedVehicle, Violation } from "./types";
+import type {
+  Detection,
+  SpeedEstimate,
+  SpeedSource,
+  Track,
+  TrackedVehicle,
+  Violation,
+} from "./types";
 
 export type EngineOptions = {
   speed: SpeedOptions;
@@ -54,6 +61,8 @@ type TrackState = {
   peak: number | null;
   above: number;
   violated: boolean;
+  /** Con que escala se obtuvo la ultima lectura que alimento al EMA. */
+  source?: SpeedSource;
 };
 
 export type EngineFrame = {
@@ -116,11 +125,18 @@ export class RadarEngine {
     for (const track of chosen) {
       const last = track.samples.at(-1)!;
       const st = this.state.get(track.id) ?? { ema: null, peak: null, above: 0, violated: false };
-      const estimate = estimateSpeed(track, projector, opts.speed);
+      const raw = estimateSpeed(track, projector, opts.speed);
+      // Si la zona calibrada ya midio a este vehiculo, la escala aproximada no
+      // vuelve a pisarla: al salir del trapecio la lectura se congela en el
+      // ultimo valor bueno, en vez de saltar a una estimacion peor justo cuando
+      // el auto se va de cuadro.
+      const estimate: SpeedEstimate =
+        st.source === "zone" && raw.source === "auto" ? { mps: null, quality: 0 } : raw;
 
       if (estimate.mps !== null) {
         st.ema = st.ema === null ? estimate.mps : st.ema + opts.smoothing * (estimate.mps - st.ema);
         st.peak = st.peak === null ? st.ema : Math.max(st.peak, st.ema);
+        st.source = estimate.source;
       }
 
       const mps = st.ema;
@@ -154,6 +170,7 @@ export class RadarEngine {
         speeding: speeding && confirmed,
         quality: estimate.quality,
         reason: estimate.reason,
+        source: st.source,
         inZone: projector ? projector.inZone(last.ground) : false,
         trail: track.samples.slice(-TRAIL_POINTS).map((s) => s.ground),
       });

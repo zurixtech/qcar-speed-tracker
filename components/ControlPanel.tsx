@@ -92,8 +92,39 @@ export default function ControlPanel({
       </Section>
 
       <Section
-        title="Calibracion de la zona"
-        hint="Sin esto no hay escala: el radar no puede saber cuantos metros mide un pixel."
+        title="Medición automática"
+        hint="Cuando el auto no está sobre la zona calibrada, el radar estima la escala con el tamaño del propio vehículo. Es aproximado y se marca con ~, pero da un número sin calibrar nada."
+      >
+        <Toggle
+          label="Medir sin calibrar (aproximado)"
+          testId="auto-scale"
+          checked={settings.autoScale}
+          onChange={(autoScale) => onChange({ autoScale })}
+        />
+        {settings.autoScale && (
+          <div className="mt-2">
+            <RangeField
+              label="Campo de visión de la cámara"
+              testId="camera-fov"
+              value={settings.cameraFovDeg}
+              min={20}
+              max={140}
+              step={1}
+              format={(v) => `${Math.round(v)}°`}
+              onChange={(cameraFovDeg) => onChange({ cameraFovDeg })}
+            />
+            <p className="text-xs leading-relaxed text-slate-400">
+              Es lo único que necesita esta estimación. Con el teléfono en vertical, la cámara
+              trasera de un móvil común ronda los 55°. Si las velocidades salen todas altas,
+              bajalo; si salen bajas, subilo.
+            </p>
+          </div>
+        )}
+      </Section>
+
+      <Section
+        title="Calibración de la zona"
+        hint="La medición precisa: marcá un tramo de calzada y decí cuánto mide de verdad. Sin esto solo queda la estimación automática."
       >
         <button
           type="button"

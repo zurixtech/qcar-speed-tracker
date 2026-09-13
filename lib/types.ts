@@ -53,6 +53,13 @@ export type Track = {
   lastSeen: number;
 };
 
+/**
+ * De donde salio la escala metrica de una lectura: de la zona calibrada
+ * ("zone", precisa) o del tamano supuesto del propio vehiculo ("auto",
+ * aproximada). La UI marca las segundas con "~".
+ */
+export type SpeedSource = "zone" | "auto";
+
 /** Estimacion de velocidad para un track en un instante dado. */
 export type SpeedEstimate = {
   /** Velocidad en metros por segundo. null si aun no hay datos suficientes. */
@@ -63,9 +70,12 @@ export type SpeedEstimate = {
     | "insufficient-time"
     | "no-calibration"
     | "outside-zone"
+    | "too-small"
     | "implausible";
   /** Confianza heuristica 0..1 del ajuste lineal. */
   quality: number;
+  /** Con que escala se midio. Solo viene cuando hay lectura. */
+  source?: SpeedSource;
 };
 
 export type Units = "kmh" | "mph";
@@ -83,6 +93,8 @@ export type TrackedVehicle = {
   speeding: boolean;
   quality: number;
   reason?: SpeedEstimate["reason"];
+  /** Escala con la que se obtuvo la ultima lectura de este vehiculo. */
+  source?: SpeedSource;
   inZone: boolean;
   /** Ultimos puntos de contacto con el suelo (normalizados), para dibujar la estela. */
   trail: Point[];

@@ -1,4 +1,5 @@
 /** Configuracion del radar: valores por defecto, validacion y persistencia. */
+import { DEFAULT_FOV_DEG } from "./autoscale";
 import type { Calibration, Quad } from "./homography";
 import { fromKmh, fromMph } from "./speed";
 import type { Units } from "./types";
@@ -20,6 +21,13 @@ export type Settings = {
   calibration: Calibration;
   /** Medir solo dentro de la zona calibrada (recomendado). */
   requireInZone: boolean;
+  /**
+   * Si la zona calibrada no da lectura, medir igual tomando la escala del
+   * tamano aparente del vehiculo. Aproximado, pero funciona sin calibrar.
+   */
+  autoScale: boolean;
+  /** Campo de vision horizontal de la camara, en grados (para `autoScale`). */
+  cameraFovDeg: number;
   /** Suavizado exponencial de la velocidad, 0..1. */
   smoothing: number;
   showZone: boolean;
@@ -52,6 +60,8 @@ export const DEFAULT_SETTINGS: Settings = {
     lengthMeters: 25,
   },
   requireInZone: true,
+  autoScale: true,
+  cameraFovDeg: DEFAULT_FOV_DEG,
   smoothing: 0.35,
   showZone: true,
   showTrails: true,
@@ -99,6 +109,8 @@ export function sanitizeSettings(value: unknown): Settings {
       lengthMeters: clamp(num(cal.lengthMeters, DEFAULT_SETTINGS.calibration.lengthMeters), 0.5, 500),
     },
     requireInZone: raw.requireInZone ?? DEFAULT_SETTINGS.requireInZone,
+    autoScale: raw.autoScale ?? DEFAULT_SETTINGS.autoScale,
+    cameraFovDeg: clamp(num(raw.cameraFovDeg, DEFAULT_SETTINGS.cameraFovDeg), 20, 140),
     smoothing: clamp(num(raw.smoothing, DEFAULT_SETTINGS.smoothing), 0.05, 1),
     showZone: raw.showZone ?? DEFAULT_SETTINGS.showZone,
     showTrails: raw.showTrails ?? DEFAULT_SETTINGS.showTrails,

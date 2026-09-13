@@ -101,11 +101,21 @@ describe("estimateSpeed", () => {
     expect(result.quality).toBeGreaterThan(0.9);
   });
 
-  it("informa falta de calibracion cuando no hay proyector", () => {
-    const result = estimateSpeed(trackAt(fromKmh(60)), null);
+  it("informa falta de calibracion cuando no hay proyector ni escala automatica", () => {
+    const result = estimateSpeed(trackAt(fromKmh(60)), null, {
+      ...DEFAULT_SPEED_OPTIONS,
+      autoScale: false,
+    });
     expect(result.mps).toBeNull();
     expect(result.reason).toBe("no-calibration");
     expect(result.quality).toBe(0);
+  });
+
+  it("prefiere la zona calibrada antes que la escala automatica", () => {
+    const truth = fromKmh(72);
+    const result = estimateSpeed(trackAt(truth), projector);
+    expect(result.source).toBe("zone");
+    expect(result.mps!).toBeCloseTo(truth, 4);
   });
 
   it("pide mas muestras antes de arriesgar una lectura", () => {
@@ -130,9 +140,24 @@ describe("estimateSpeed", () => {
     for (let i = 0; i < 20; i++) {
       samples.push(sample(1000 + i * 40, { x: 0.01, y: 0.01, w: 0.05, h: 0.04 }));
     }
-    const result = estimateSpeed(trackFrom(samples), projector);
+    const result = estimateSpeed(trackFrom(samples), projector, {
+      ...DEFAULT_SPEED_OPTIONS,
+      autoScale: false,
+    });
     expect(result.mps).toBeNull();
     expect(result.reason).toBe("outside-zone");
+  });
+
+  it("con escala automatica mide igual fuera de la zona, marcado como aproximado", () => {
+    // Auto cruzando el cuadro por arriba del trapecio calibrado: la homografia
+    // no lo toca, pero su caja alcanza para estimar la escala.
+    const samples: TrackSample[] = [];
+    for (let i = 0; i < 20; i++) {
+      samples.push(sample(1000 + i * 40, { x: 0.05 + i * 0.01, y: 0.05, w: 0.05, h: 0.04 }));
+    }
+    const result = estimateSpeed(trackFrom(samples), projector);
+    expect(result.mps).not.toBeNull();
+    expect(result.source).toBe("auto");
   });
 
   it("mide fuera de la zona si requireInZone esta desactivado", () => {
@@ -158,6 +183,7 @@ describe("estimateSpeed", () => {
     const result = estimateSpeed(track, projector, {
       ...DEFAULT_SPEED_OPTIONS,
       maxMps: fromKmh(150),
+      autoScale: false,
     });
     expect(result.mps).toBeNull();
     expect(result.reason).toBe("implausible");

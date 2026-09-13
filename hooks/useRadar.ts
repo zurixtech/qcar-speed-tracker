@@ -90,7 +90,12 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
       smoothing: settings.smoothing,
       confirmReadings: settings.confirmReadings,
       maxVehicles: settings.maxVehicles,
-      speed: { ...DEFAULT_SPEED_OPTIONS, requireInZone: settings.requireInZone },
+      speed: {
+        ...DEFAULT_SPEED_OPTIONS,
+        requireInZone: settings.requireInZone,
+        autoScale: settings.autoScale,
+        fovDeg: settings.cameraFovDeg,
+      },
     });
   }, [settings]);
 
