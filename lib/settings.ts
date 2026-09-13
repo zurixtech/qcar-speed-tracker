@@ -51,7 +51,11 @@ export const DEFAULT_QUAD: Quad = [
 export const DEFAULT_SETTINGS: Settings = {
   units: "kmh",
   speedLimit: 60,
-  minScore: 0.5,
+  // Bajo a proposito: el caso real es un auto lejos, de noche o con poca luz,
+  // donde COCO-SSD devuelve confianzas flojas. Con 0.5 no salia ni un recuadro
+  // y parecia que la app no andaba; a 0.35 aparecen, y los falsos positivos que
+  // entran los filtra el tracker (minHits) antes de llegar a medirse.
+  minScore: 0.35,
   maxVehicles: 2,
   modelVariant: "lite_mobilenet_v2",
   calibration: {
