@@ -74,8 +74,11 @@ describe("RadarEngine sobre una escena sintetica", () => {
     expect(Math.abs(toKmh(car.mps!) - 70)).toBeLessThan(7);
   });
 
-  it("no reporta velocidad si no hay calibracion", () => {
-    const engine = new RadarEngine({ smoothing: 1 });
+  it("no reporta velocidad si no hay calibracion ni escala automatica", () => {
+    const engine = new RadarEngine({
+      smoothing: 1,
+      speed: { ...DEFAULT_SPEED_OPTIONS, autoScale: false },
+    });
     const frames = simulateApproach({ mps: fromKmh(60), frames: 20 });
     let result = engine.update([], frames[0].t - 100, null);
     for (const f of frames) result = engine.update(f.detections, f.t, null);
@@ -84,6 +87,16 @@ describe("RadarEngine sobre una escena sintetica", () => {
     expect(result.vehicles[0].mps).toBeNull();
     expect(result.vehicles[0].reason).toBe("no-calibration");
     expect(result.newViolations).toHaveLength(0);
+  });
+
+  it("sin calibracion cae a la escala automatica y marca la lectura como aproximada", () => {
+    const engine = new RadarEngine({ smoothing: 1 });
+    const frames = simulateApproach({ mps: fromKmh(60), frames: 20 });
+    let result = engine.update([], frames[0].t - 100, null);
+    for (const f of frames) result = engine.update(f.detections, f.t, null);
+
+    expect(result.vehicles[0].mps).not.toBeNull();
+    expect(result.vehicles[0].source).toBe("auto");
   });
 });
 
@@ -136,7 +149,7 @@ describe("zona de medicion", () => {
   it("ignora vehiculos fuera de la zona cuando requireInZone esta activo", () => {
     const engine = new RadarEngine({
       smoothing: 1,
-      speed: { ...DEFAULT_SPEED_OPTIONS, requireInZone: true },
+      speed: { ...DEFAULT_SPEED_OPTIONS, requireInZone: true, autoScale: false },
     });
     // Caja en la esquina superior izquierda: muy lejos del trapecio calibrado.
     let result = engine.update([], 900, projector);
@@ -150,6 +163,18 @@ describe("zona de medicion", () => {
     expect(result.vehicles).toHaveLength(1);
     expect(result.vehicles[0].mps).toBeNull();
     expect(result.vehicles[0].inZone).toBe(false);
+  });
+
+  it("la escala aproximada no pisa una lectura ya medida sobre la zona", () => {
+    // El auto cruza la zona y se va: en los ultimos frames la homografia se
+    // queda sin muestras y solo queda la estimacion por tamano, que es peor.
+    const engine = new RadarEngine({ smoothing: 1 });
+    const frames = simulateApproach({ mps: fromKmh(110), frames: 40, startY: 28 });
+    let result = engine.update([], frames[0].t - 100, projector);
+    for (const f of frames) result = engine.update(f.detections, f.t, projector);
+
+    expect(result.vehicles[0].source).toBe("zone");
+    expect(toKmh(result.vehicles[0].mps!)).toBeCloseTo(110, 0);
   });
 
   it("marca inZone a los vehiculos sobre la calzada calibrada", () => {

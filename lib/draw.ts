@@ -1,6 +1,6 @@
 /** Dibujo del overlay del radar sobre un canvas 2D. */
 import type { Calibration } from "./homography";
-import { formatSpeed, unitLabel, vehicleLabel } from "./format";
+import { formatSpeed, speedHint, unitLabel, vehicleLabel } from "./format";
 import type { TrackedVehicle, Units } from "./types";
 import { toView, type ViewRect } from "./view";
 
@@ -108,7 +108,10 @@ function drawSpeedInBox(
   opts: DrawOptions,
 ): void {
   const measured = v.mps !== null;
-  const value = measured ? formatSpeed(v.mps, opts.units) : "--";
+  // La escala automatica sale de suponer el ancho del vehiculo: el numero es un
+  // orden de magnitud, no una medicion, y tiene que verse la diferencia.
+  const approx = measured && v.source === "auto";
+  const value = measured ? `${approx ? "~" : ""}${formatSpeed(v.mps, opts.units)}` : "--";
   const unit = unitLabel(opts.units);
 
   // El tamano sale de la caja pero acotado al canvas: un auto lejano no puede
@@ -159,6 +162,10 @@ function drawSpeedInBox(
   ctx.fillText(unit, plateX + padX + valueWidth + gap, baseline);
   ctx.restore();
 
+  // Mientras no hay lectura, decir por que: "--" a secas se lee como que la app
+  // no anda, cuando lo que suele faltar es acomodar la zona o acercarse.
+  if (!measured) drawHint(ctx, speedHint(v.reason), plateX + plateW / 2, plateY + plateH, size, opts);
+
   // El tipo de vehiculo queda como etiqueta chica pegada al borde de la caja.
   const tagSize = clamp(size * 0.38, 10, 16);
   const tag = vehicleLabel(v.label);
@@ -172,6 +179,35 @@ function drawSpeedInBox(
   ctx.fillStyle = v.speeding ? "#ffffff" : "#0b1220";
   ctx.textBaseline = "middle";
   ctx.fillText(tag, box.x + tagSize * 0.4, tagY + tagH / 2);
+  ctx.restore();
+}
+
+/** Cartelito con el motivo, centrado justo debajo de la chapa de velocidad. */
+function drawHint(
+  ctx: CanvasRenderingContext2D,
+  text: string,
+  centerX: number,
+  top: number,
+  size: number,
+  opts: DrawOptions,
+): void {
+  const fontSize = clamp(size * 0.46, 9, 14);
+  ctx.save();
+  ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
+  const w = ctx.measureText(text).width + fontSize * 1.2;
+  const h = fontSize * 1.9;
+  const x = clamp(centerX - w / 2, opts.view.x + 2, opts.view.x + opts.view.w - w - 2);
+  // Si no entra abajo, el cartel se acomoda arriba de la chapa.
+  const fits = top + fontSize * 0.4 + h <= opts.view.y + opts.view.h - 2;
+  const y = fits ? top + fontSize * 0.4 : top - h - fontSize * 1.4;
+
+  roundRect(ctx, x, y, w, h, h / 2);
+  ctx.fillStyle = "rgba(3,7,18,0.7)";
+  ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.82)";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText(text, x + w / 2, y + h / 2);
   ctx.restore();
 }
 

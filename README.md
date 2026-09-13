@@ -34,10 +34,13 @@ En el teléfono (o en el navegador con el modo dispositivo activado):
 
 1. **Cámara** para usar la de atrás, **Video** para abrir uno grabado, o
    **Demo** para probar con `public/demo/traffic.mp4`.
-2. **Ajustes → Ajustar zona sobre la calzada**: la hoja se corre sola y acomodás
-   las 4 esquinas con el dedo, sobre el tramo de ruta que querés medir.
-3. Cargá el **ancho** y el **largo** reales de ese tramo, en metros.
-4. Poné el límite de velocidad y, si querés medir de a un auto por vez, elegí
+2. Ya deberías ver un número: sin calibrar, el radar estima la escala con el
+   tamaño del propio vehículo y lo marca con `~` (ver *Medición automática*).
+3. Para medir en serio, **Ajustes → Ajustar zona sobre la calzada**: la hoja se
+   corre sola y acomodás las 4 esquinas con el dedo, sobre el tramo de ruta que
+   querés medir.
+4. Cargá el **ancho** y el **largo** reales de ese tramo, en metros.
+5. Poné el límite de velocidad y, si querés medir de a un auto por vez, elegí
    **Un auto** en *Vehículos a seguir*.
 
 > La cámara solo funciona en `localhost` o sobre HTTPS. Es una restricción de
@@ -58,6 +61,7 @@ En el teléfono (o en el navegador con el modo dispositivo activado):
 | Detección | `lib/detector.ts` | COCO-SSD sobre WebGL. Filtra a `car`, `truck`, `bus`, `motorcycle`, `bicycle` y normaliza las cajas a 0..1. |
 | Tracking | `lib/tracker.ts` | Asocia las cajas de un frame con las del anterior por IoU sobre la posición **predicha**, con respaldo por cercanía. Sin esto no hay "mismo auto" y no hay velocidad. |
 | Escala | `lib/homography.ts` | Homografía de 4 puntos: convierte el punto de contacto del auto con el asfalto a metros sobre el plano de la calzada. |
+| Escala de respaldo | `lib/autoscale.ts` | Cuando la homografía no aplica, la escala sale del tamaño aparente del propio vehículo. Aproximado, pero no necesita calibración. |
 | Velocidad | `lib/speed.ts` | Regresión lineal de la posición en el mundo sobre una ventana de ~0,9 s. La pendiente es el vector velocidad. |
 | Selección | `lib/engine.ts` | Se queda con **1 o 2** vehículos: los de caja más grande (los más cercanos), con premio al que está en la zona y al que ya se venía siguiendo. |
 | Infracciones | `lib/engine.ts` | Suavizado exponencial, confirmación por N lecturas y alta de la infracción (una sola vez por vehículo). |
@@ -132,10 +136,68 @@ corto, alargá la zona calibrada: más metros = más tiempo dentro de cuadro.
 
 ---
 
+## Medición automática (sin calibrar)
+
+La cámara no sabe cuántos metros mide un píxel. La forma precisa de decírselo es
+la calibración de la sección siguiente, pero hay un atajo: **el vehículo mismo
+sirve de regla**. Un auto mide alrededor de 1,8 m de ancho, así que de la
+fracción del cuadro que ocupa su recuadro sale a qué distancia está, y de cómo
+esa distancia cambia entre frames sale la velocidad.
+
+Viene **activado por defecto**, y es lo que hace que aparezca un número apenas
+apuntás el teléfono a la calle, sin tocar nada. Las lecturas que salen por este
+camino se dibujan con un **`~` adelante** (`~63 km/h`) para no confundirlas con
+una medición sobre la zona calibrada.
+
+Lo que necesita saber es **el campo de visión de la cámara**, un solo número que
+se carga una vez por teléfono en *Ajustes → Medición automática*. Con el móvil
+en vertical, la cámara trasera de un equipo común ronda los **55°**, que es el
+valor por defecto. El error se traslada entero al resultado, igual que el de la
+cinta métrica en la calibración manual: si todas las velocidades salen altas,
+bajá el ángulo; si salen bajas, subilo.
+
+Precisión esperada: **±20-30 %** en buenas condiciones. Sirve para saber si un
+auto va a 40 o a 90; no para labrar una multa.
+
+**Cuándo NO usarlo:**
+
+- **Tráfico cruzando de lado.** La escala supone que ves al vehículo de frente o
+  de atrás. De perfil, la caja mide el *largo* del auto y no el ancho, y la
+  lectura sale bastante más de dos veces por debajo de la real.
+- **Camionetas, camiones y utilitarios** que no se parecen al ancho típico de su
+  clase.
+- **Autos muy lejos.** Con una caja de menos del 1,5 % del ancho del cuadro la
+  distancia se dispara: el radar no mide y avisa *muy lejos*.
+
+La calibración manual gana siempre que exista: si el auto está dentro de la zona
+calibrada se usa esa medición, y una vez que un vehículo se midió por ahí, la
+estimación aproximada ya no la pisa (al salir del trapecio la lectura se
+congela en el último valor bueno en lugar de saltar a uno peor).
+
+### Por qué la caja dice "--"
+
+Antes, cuando no había lectura, el recuadro mostraba `--` y no había forma de
+saber qué faltaba. Ahora aparece el motivo debajo del número:
+
+| Cartel | Qué pasa |
+|---|---|
+| `midiendo…` | Todavía junta muestras. Normal en el primer medio segundo. |
+| `fuera de zona` | El auto está afuera del trapecio calibrado y la escala automática está apagada. |
+| `sin escala` | No hay calibración válida ni escala automática. |
+| `muy lejos` | La caja es demasiado chica para estimar la distancia. |
+| `lectura dudosa` | Salió una velocidad imposible, casi siempre un cruce de identidades. |
+
+Si ni siquiera aparece un recuadro, el problema es anterior: el detector no está
+viendo el auto. Bajá la **confianza mínima** en *Ajustes → Detección* y probá el
+modelo `mobilenet_v2`. De noche, con lluvia o filmando a través de un vidrio con
+reflejos, COCO-SSD pierde muchísimas detecciones.
+
+---
+
 ## Calibración: de esto depende toda la precisión
 
-La cámara no sabe cuántos metros mide un píxel. Se lo tenés que decir vos, y es
-lo único que separa una medición decente de un número inventado.
+La medición buena sigue siendo esta. Se lo tenés que decir vos, y es lo único
+que separa una medición decente de un número estimado.
 
 Las 4 esquinas van **en este orden**:
 
@@ -186,7 +248,9 @@ largo sin salir a medir con cinta.
 |---|---|
 | Vehículos a seguir | Uno o dos. Es el máximo que se mide, se dibuja y puede generar infracciones. |
 | Límite y unidades | Umbral de infracción, en km/h o mph. |
-| Zona + ancho/largo | La calibración. Sin esto no hay medición. |
+| Medir sin calibrar | Estima la escala con el tamaño del vehículo cuando la zona no da lectura. Aproximado, se marca con `~`. |
+| Campo de visión | El único dato que necesita la estimación automática. ~55° en un móvil en vertical. |
+| Zona + ancho/largo | La calibración. Es la medición precisa. |
 | Confianza mínima | Umbral del detector. Más alto = menos falsos positivos, más autos perdidos. |
 | Suavizado | Qué tan rápido reacciona la lectura. Bajo = más estable pero con retardo. |
 | Lecturas para confirmar | Cuántas lecturas seguidas sobre el límite hacen falta para dar el alta. Evita infracciones por un pico aislado. |
@@ -252,7 +316,7 @@ npm run test:e2e  # end-to-end (Playwright)
 npm run typecheck
 ```
 
-**107 unitarios** — toda la matemática, sin DOM ni TensorFlow. `tests/unit/helpers/scene.ts`
+**129 unitarios** — toda la matemática, sin DOM ni TensorFlow. `tests/unit/helpers/scene.ts`
 arma una cámara sintética: proyecta un auto que se mueve a una velocidad
 *conocida* con perspectiva real (la caja se agranda al acercarse, como en un
 video de verdad) y se verifica que el motor mida esa velocidad. Entre 30 y
@@ -287,7 +351,8 @@ hooks/useRadar.ts    Sesión: fuente de video, modelo, bucle de frames, infracci
 lib/
   detector.ts        COCO-SSD sobre TensorFlow.js
   tracker.ts         Tracker multi-objeto por IoU
-  homography.ts      Píxeles → metros
+  homography.ts      Píxeles → metros (zona calibrada)
+  autoscale.ts       Píxeles → metros sin calibrar, por tamaño del vehículo
   speed.ts           Estimación de velocidad
   engine.ts          Pipeline completo (código puro, testeable)
   draw.ts            Overlay en canvas (velocidad dentro del recuadro)
@@ -314,7 +379,12 @@ throttling. Re-renderizar React 30 veces por segundo mataría el frame rate.
   todos los cruces dan un número absurdo.
 - **Motos y bicis**: el punto de contacto con el suelo es menos estable que en un
   auto, así que la lectura es más ruidosa.
-- **Noche y lluvia**: COCO-SSD baja bastante su tasa de detección.
+- **Noche y lluvia**: COCO-SSD baja bastante su tasa de detección. Filmar a
+  través de un vidrio con reflejos la baja todavía más: si no aparece ningún
+  recuadro, el problema está acá y no en la medición.
+- **Escala automática de perfil**: supone que ves al vehículo de frente o de
+  atrás. Con tráfico cruzando de lado la lectura sale corta (ver *Medición
+  automática*).
 - **Sin WebGL**: cae a CPU, que anda pero a pocos frames por segundo (ver la
   tabla de rango útil más arriba).
 - **Solo 1 o 2 autos**: es una decisión de producto, no una limitación técnica.

@@ -26,7 +26,11 @@ corriendo: Playwright reusa el server existente y sirve un build anterior.
   layouts de escritorio ni breakpoints `lg:`.
 - **Como maximo 1 o 2 vehiculos** medidos y dibujados (`maxVehicles`). El resto
   se cuenta en pantalla y nada mas.
-- **La velocidad se dibuja adentro de la caja**, grande.
+- **La velocidad se dibuja adentro de la caja**, grande. Si no hay lectura, va
+  el motivo debajo; si salio de la escala automatica, un `~` adelante.
+- **Hay dos escalas y no se mezclan.** La zona calibrada manda; `autoscale.ts`
+  es el respaldo aproximado. Un vehiculo que ya se midio sobre la zona no
+  vuelve a leerse por el respaldo (ver `engine.ts`).
 - Las coordenadas del pipeline son del frame (0..1). Para pasarlas a pantalla
   siempre via `lib/view.ts`: el video va `object-contain` y casi nunca coincide
   la relacion de aspecto.
@@ -44,6 +48,7 @@ components/RadarApp.tsx   Pantalla del celular (HUD + acciones + hoja)
 hooks/useRadar.ts         Sesion: fuente, modelo, bucle, infracciones
 lib/engine.ts             Pipeline puro: tracking -> seleccion -> velocidad
 lib/{tracker,speed,homography}.ts   Matematica del radar
+lib/autoscale.ts          Escala sin calibrar, por tamano del vehiculo
 lib/draw.ts + lib/view.ts Overlay y geometria de la vista
 lib/settings.ts           Config, saneo y persistencia (localStorage)
 ```
