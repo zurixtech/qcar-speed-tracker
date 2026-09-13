@@ -10,6 +10,21 @@ import { expect, test, type Page } from "@playwright/test";
  */
 const FIXTURE = path.join(__dirname, "..", "fixtures", "traffic.webm");
 
+/** La lista de infracciones vive en la hoja que sube desde abajo. */
+async function openViolations(page: Page): Promise<void> {
+  await page.getByTestId("open-violations").click();
+  await expect(page.getByTestId("sheet")).toBeVisible();
+}
+
+/** Los ajustes tambien: abrirlos, tocar algo y volver a la camara. */
+async function withSettings(page: Page, fn: () => Promise<void>): Promise<void> {
+  await page.getByTestId("open-settings").click();
+  await expect(page.getByTestId("sheet")).toBeVisible();
+  await fn();
+  await page.getByTestId("close-sheet").click();
+  await expect(page.getByTestId("sheet")).toBeHidden();
+}
+
 async function loadFixture(page: Page): Promise<void> {
   await page.getByTestId("file-input").setInputFiles(FIXTURE);
   await expect(page.getByTestId("radar-status")).toHaveAttribute("data-status", "running", {
@@ -28,11 +43,41 @@ test.describe("pipeline de deteccion", () => {
 
     // El contador de vehiculos en cuadro tiene que despegar de cero.
     await expect
-      .poll(async () => Number(await page.getByTestId("stat-vehicles").innerText()), {
+      .poll(async () => Number(await page.getByTestId("stat-detected").innerText()), {
         timeout: 90_000,
         message: "el detector nunca encontro un vehiculo",
       })
       .toBeGreaterThan(0);
+  });
+
+  test("nunca sigue mas vehiculos que el maximo elegido", async ({ page }) => {
+    await loadFixture(page);
+
+    // El video tiene trafico: el detector ve varios, pero el radar sigue 2.
+    await expect
+      .poll(async () => Number(await page.getByTestId("stat-detected").innerText()), {
+        timeout: 90_000,
+        message: "el detector nunca encontro un vehiculo",
+      })
+      .toBeGreaterThan(0);
+
+    const seguidos: number[] = [];
+    for (let i = 0; i < 25; i++) {
+      seguidos.push(Number(await page.getByTestId("stat-vehicles").innerText()));
+      await page.waitForTimeout(200);
+    }
+    expect(Math.max(...seguidos)).toBeLessThanOrEqual(2);
+
+    await withSettings(page, async () => {
+      await page.getByTestId("max-vehicles-1").click();
+    });
+
+    const conUno: number[] = [];
+    for (let i = 0; i < 25; i++) {
+      conUno.push(Number(await page.getByTestId("stat-vehicles").innerText()));
+      await page.waitForTimeout(200);
+    }
+    expect(Math.max(...conUno)).toBeLessThanOrEqual(1);
   });
 
   test("dibuja las cajas sobre el canvas del overlay", async ({ page }) => {
@@ -69,11 +114,21 @@ test.describe("pipeline de deteccion", () => {
 
   test("registra infracciones con un limite muy bajo", async ({ page }) => {
     // 1 km/h: cualquier vehiculo en movimiento queda en infraccion.
-    await page.getByTestId("speed-limit").fill("1");
-    await page.getByTestId("sound-alerts").uncheck();
+    await withSettings(page, async () => {
+      await page.getByTestId("speed-limit").fill("1");
+      await page.getByTestId("sound-alerts").uncheck();
+    });
     await loadFixture(page);
 
-    await expect(page.getByTestId("violation-item").first()).toBeVisible({ timeout: 120_000 });
+    await expect
+      .poll(async () => Number((await page.getByTestId("violation-badge").innerText()).replace(/\D/g, "")), {
+        timeout: 120_000,
+        message: "nunca se registro una infraccion",
+      })
+      .toBeGreaterThan(0);
+
+    await openViolations(page);
+    await expect(page.getByTestId("violation-item").first()).toBeVisible();
 
     const rows = page.getByTestId("violation-item");
     expect(await rows.count()).toBeGreaterThan(0);
@@ -83,7 +138,9 @@ test.describe("pipeline de deteccion", () => {
   });
 
   test("no registra infracciones con un limite inalcanzable", async ({ page }) => {
-    await page.getByTestId("speed-limit").fill("400");
+    await withSettings(page, async () => {
+      await page.getByTestId("speed-limit").fill("400");
+    });
     await loadFixture(page);
 
     await expect
@@ -92,6 +149,7 @@ test.describe("pipeline de deteccion", () => {
       })
       .toBeGreaterThan(0);
 
+    await openViolations(page);
     await expect(page.getByTestId("violation-count")).toHaveText("(0)");
   });
 
@@ -101,6 +159,7 @@ test.describe("pipeline de deteccion", () => {
 
     await expect(page.getByTestId("radar-status")).toHaveAttribute("data-status", "idle");
     await expect(page.getByTestId("stat-vehicles")).toHaveText("0");
+    await expect(page.getByTestId("stat-detected")).toHaveText("0");
     await expect(page.getByTestId("start-camera")).toBeVisible();
   });
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { unitLabel } from "@/lib/format";
-import { DEFAULT_SETTINGS, type Settings } from "@/lib/settings";
+import { DEFAULT_SETTINGS, type MaxVehicles, type Settings } from "@/lib/settings";
 
 type Props = {
   settings: Settings;
@@ -27,7 +27,31 @@ export default function ControlPanel({
     onChange({ calibration: { ...cal, ...patch } });
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-4 pb-2">
+      <Section
+        title="Vehiculos a seguir"
+        hint="El radar mide el auto mas grande del cuadro (el mas cercano) y, si elegis dos, tambien al que lo sigue."
+      >
+        <div className="grid grid-cols-2 gap-2">
+          {([1, 2] as const).map((n) => (
+            <button
+              key={n}
+              type="button"
+              data-testid={`max-vehicles-${n}`}
+              aria-pressed={settings.maxVehicles === n}
+              onClick={() => onChange({ maxVehicles: n as MaxVehicles })}
+              className={`rounded-xl py-3 text-sm font-semibold transition ${
+                settings.maxVehicles === n
+                  ? "bg-sky-500 text-white"
+                  : "border border-edge text-slate-300 active:bg-ink"
+              }`}
+            >
+              {n === 1 ? "Un auto" : "Dos autos"}
+            </button>
+          ))}
+        </div>
+      </Section>
+
       <Section title="Limite de velocidad">
         <div className="flex items-center gap-3">
           <input
@@ -37,7 +61,7 @@ export default function ControlPanel({
             max={400}
             value={settings.speedLimit}
             onChange={(e) => onChange({ speedLimit: Number(e.target.value) })}
-            className="w-24 rounded-lg border border-edge bg-ink px-3 py-2 text-lg font-semibold tabular-nums"
+            className="w-24 rounded-lg border border-edge bg-ink px-3 py-2.5 text-lg font-semibold tabular-nums"
           />
           <div className="flex overflow-hidden rounded-lg border border-edge">
             {(["kmh", "mph"] as const).map((u) => (
@@ -46,7 +70,7 @@ export default function ControlPanel({
                 type="button"
                 data-testid={`units-${u}`}
                 onClick={() => onChange({ units: u })}
-                className={`px-3 py-2 text-sm font-medium transition ${
+                className={`px-4 py-2.5 text-sm font-medium transition ${
                   settings.units === u ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
@@ -62,7 +86,7 @@ export default function ControlPanel({
           step={5}
           value={settings.speedLimit}
           onChange={(e) => onChange({ speedLimit: Number(e.target.value) })}
-          className="mt-3 w-full accent-sky-500"
+          className="mt-4 h-6 w-full accent-sky-500"
           aria-label="Limite de velocidad"
         />
       </Section>
@@ -75,8 +99,8 @@ export default function ControlPanel({
           type="button"
           data-testid="toggle-calibration"
           onClick={onToggleCalibrating}
-          className={`w-full rounded-lg px-3 py-2 text-sm font-semibold transition ${
-            calibrating ? "bg-sky-500 text-white" : "border border-edge text-slate-200 hover:bg-panel"
+          className={`w-full rounded-xl px-3 py-3 text-sm font-semibold transition ${
+            calibrating ? "bg-sky-500 text-white" : "border border-edge text-slate-200 active:bg-ink"
           }`}
         >
           {calibrating ? "Listo, ocultar esquinas" : "Ajustar zona sobre la calzada"}
@@ -293,7 +317,7 @@ function RangeField({
         max={max}
         step={step}
         onChange={(e) => onChange(Number(e.target.value))}
-        className="mt-1 w-full accent-sky-500"
+        className="mt-1 h-6 w-full accent-sky-500"
       />
     </label>
   );
@@ -311,14 +335,14 @@ function Toggle({
   testId: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between py-1.5 text-sm text-slate-300">
+    <label className="flex cursor-pointer items-center justify-between py-2.5 text-sm text-slate-300">
       {label}
       <input
         type="checkbox"
         data-testid={testId}
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 accent-sky-500"
+        className="h-5 w-5 accent-sky-500"
       />
     </label>
   );

@@ -1,9 +1,17 @@
 # QCar Radar
 
-Prueba de concepto de un radar de velocidad: apuntás la cámara a la calzada, la
-página detecta los vehículos, les dibuja un recuadro y estima a qué velocidad
-van. Si pasan del límite que configuraste, el recuadro se pone rojo, suena una
-alerta y la infracción queda registrada con una captura.
+Prueba de concepto de un radar de velocidad **para el celular**: apuntás la
+cámara a la calzada, la página sigue **uno o dos vehículos** —el más cercano y,
+si querés, el que lo sigue— les dibuja un recuadro y muestra **la velocidad
+adentro del recuadro**, grande. Si pasan del límite que configuraste, el
+recuadro se pone rojo, suena una alerta y la infracción queda registrada con una
+captura.
+
+**Es una app de celular, no de escritorio.** Una sola pantalla: la cámara ocupa
+todo, los contadores flotan arriba, los botones grandes abajo y el resto
+(ajustes, calibración, infracciones) vive en una hoja que sube desde abajo. En
+una pantalla grande se ve esa misma columna angosta, centrada: no hay layout de
+escritorio. Los tests end-to-end corren sobre un teléfono emulado (Pixel 5).
 
 **Todo corre en el navegador.** No hay backend, no se sube ni un frame a ningún
 servidor: el modelo de detección se descarga una vez y la inferencia se hace con
@@ -22,14 +30,15 @@ npm install
 npm run dev        # http://localhost:3000
 ```
 
-En la página:
+En el teléfono (o en el navegador con el modo dispositivo activado):
 
-1. **Cargar video** y elegí `public/demo/traffic.mp4` (o el botón **Video de
-   demo**), o bien **Usar cámara** si estás en HTTPS o en localhost.
-2. Tocá **Ajustar zona sobre la calzada** y acomodá las 4 esquinas sobre el
-   tramo de ruta que querés medir.
+1. **Cámara** para usar la de atrás, **Video** para abrir uno grabado, o
+   **Demo** para probar con `public/demo/traffic.mp4`.
+2. **Ajustes → Ajustar zona sobre la calzada**: la hoja se corre sola y acomodás
+   las 4 esquinas con el dedo, sobre el tramo de ruta que querés medir.
 3. Cargá el **ancho** y el **largo** reales de ese tramo, en metros.
-4. Poné el límite de velocidad y listo.
+4. Poné el límite de velocidad y, si querés medir de a un auto por vez, elegí
+   **Un auto** en *Vehículos a seguir*.
 
 > La cámara solo funciona en `localhost` o sobre HTTPS. Es una restricción de
 > los navegadores, no de la app.
@@ -50,14 +59,36 @@ En la página:
 | Tracking | `lib/tracker.ts` | Asocia las cajas de un frame con las del anterior por IoU sobre la posición **predicha**, con respaldo por cercanía. Sin esto no hay "mismo auto" y no hay velocidad. |
 | Escala | `lib/homography.ts` | Homografía de 4 puntos: convierte el punto de contacto del auto con el asfalto a metros sobre el plano de la calzada. |
 | Velocidad | `lib/speed.ts` | Regresión lineal de la posición en el mundo sobre una ventana de ~0,9 s. La pendiente es el vector velocidad. |
+| Selección | `lib/engine.ts` | Se queda con **1 o 2** vehículos: los de caja más grande (los más cercanos), con premio al que está en la zona y al que ya se venía siguiendo. |
 | Infracciones | `lib/engine.ts` | Suavizado exponencial, confirmación por N lecturas y alta de la infracción (una sola vez por vehículo). |
 
-### Dos decisiones que importan
+### Decisiones que importan
 
 **Por qué regresión y no restar dos frames.** La caja del detector "tiembla"
 varios píxeles por frame. Derivar entre dos frames consecutivos amplifica ese
 ruido y da velocidades que saltan de 40 a 120 km/h. Ajustar una recta a toda la
 ventana promedia el error y da una lectura estable.
+
+**Por qué solo uno o dos autos.** En una pantalla de 6 pulgadas, media docena de
+recuadros con su número encima no se leen: se pisan entre sí y tapan justamente
+la calzada. El detector y el tracker siguen viendo todo el tráfico (el contador
+`Autos 2/4` lo muestra), pero se mide y se dibuja el auto más cercano —el único
+que la homografía resuelve bien— y opcionalmente el siguiente. La elección tiene
+histeresis: el que ya estaba elegido conserva el recuadro salvo que otro sea
+claramente más grande, si no el cartel salta de auto en auto frame a frame.
+
+**Por qué la velocidad va adentro del recuadro.** Sostenido a un brazo de
+distancia, un cartelito arriba de la caja no se lee, y se corta cuando el auto
+toca el borde superior del cuadro. El número va centrado en la caja, del tamaño
+de la caja, y el tipo de vehículo queda como etiqueta chica.
+
+**Por qué el overlay no dibuja sobre todo el canvas.** El video se muestra
+"contenido" en la pantalla, y en el celular casi nunca coincide la relación de
+aspecto: quedan bandas negras. Las cajas vienen en coordenadas del frame (0..1),
+así que hay que mapearlas al rectángulo donde el frame realmente cae
+(`lib/view.ts`). Sin eso, los recuadros aparecen corridos respecto del auto. La
+misma cuenta ubica las esquinas de calibración, que por eso se pueden arrastrar
+con el dedo y quedan pegadas al píxel del video que estás tocando.
 
 **Por qué el tracker predice en vez de comparar contra la última caja.** A 25 fps
 un auto se mueve poco entre frames y su caja solapa consigo misma, así que basta
@@ -153,6 +184,7 @@ largo sin salir a medir con cinta.
 
 | Control | Para qué sirve |
 |---|---|
+| Vehículos a seguir | Uno o dos. Es el máximo que se mide, se dibuja y puede generar infracciones. |
 | Límite y unidades | Umbral de infracción, en km/h o mph. |
 | Zona + ancho/largo | La calibración. Sin esto no hay medición. |
 | Confianza mínima | Umbral del detector. Más alto = menos falsos positivos, más autos perdidos. |
@@ -220,16 +252,24 @@ npm run test:e2e  # end-to-end (Playwright)
 npm run typecheck
 ```
 
-**91 unitarios** — toda la matemática, sin DOM ni TensorFlow. `tests/unit/helpers/scene.ts`
+**107 unitarios** — toda la matemática, sin DOM ni TensorFlow. `tests/unit/helpers/scene.ts`
 arma una cámara sintética: proyecta un auto que se mueve a una velocidad
 *conocida* con perspectiva real (la caja se agranda al acercarse, como en un
 video de verdad) y se verifica que el motor mida esa velocidad. Entre 30 y
 110 km/h el error es menor al 1 %, y con 8 px de ruido en las cajas se mantiene
 dentro de 7 km/h.
 
-**17 end-to-end** — `tests/e2e/ui.spec.ts` cubre la UI, la persistencia y la
-calibración. `tests/e2e/pipeline.spec.ts` corre el pipeline completo sobre un
-video real de tráfico: carga el modelo, detecta, mide y registra infracciones.
+Además de la escena sintética, `tests/unit/selection.test.ts` fija el límite de
+1-2 vehículos (a quién elige, la histeresis, que solo los elegidos labran
+infracción) y `tests/unit/view.test.ts` la geometría del frame dentro de la
+pantalla.
+
+**21 end-to-end**, todos sobre un **Pixel 5 emulado** — `tests/e2e/ui.spec.ts`
+cubre la pantalla del celular (que entre sin scroll), la hoja de ajustes, la
+persistencia y la calibración arrastrando una esquina con el dedo.
+`tests/e2e/pipeline.spec.ts` corre el pipeline completo sobre un video real de
+tráfico: carga el modelo, detecta, mide, comprueba que nunca siga más autos que
+el máximo elegido y registra infracciones.
 
 > El fixture de test es VP9/WebM porque el Chromium de CI viene sin
 > decodificador H.264. El video de demo publicado sí es H.264, que es lo que
@@ -241,7 +281,8 @@ video real de tráfico: carga el modelo, detecta, mide y registra infracciones.
 
 ```
 app/                 Next.js App Router (una sola página)
-components/          RadarApp, VideoStage, ControlPanel, ViolationsPanel
+components/          RadarApp (pantalla del celular), VideoStage, Sheet,
+                     ControlPanel, ViolationsPanel
 hooks/useRadar.ts    Sesión: fuente de video, modelo, bucle de frames, infracciones
 lib/
   detector.ts        COCO-SSD sobre TensorFlow.js
@@ -249,7 +290,8 @@ lib/
   homography.ts      Píxeles → metros
   speed.ts           Estimación de velocidad
   engine.ts          Pipeline completo (código puro, testeable)
-  draw.ts            Overlay en canvas
+  draw.ts            Overlay en canvas (velocidad dentro del recuadro)
+  view.ts            Dónde cae el frame dentro de la pantalla
   settings.ts        Configuración, validación y persistencia
   frames.ts          Bucle de frames con mediaTime
 tests/unit/          Vitest
@@ -275,6 +317,8 @@ throttling. Re-renderizar React 30 veces por segundo mataría el frame rate.
 - **Noche y lluvia**: COCO-SSD baja bastante su tasa de detección.
 - **Sin WebGL**: cae a CPU, que anda pero a pocos frames por segundo (ver la
   tabla de rango útil más arriba).
+- **Solo 1 o 2 autos**: es una decisión de producto, no una limitación técnica.
+  Si pasan tres juntos, el tercero se ve en el contador pero no se mide.
 
 ---
 

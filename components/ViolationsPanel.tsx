@@ -12,10 +12,10 @@ type Props = {
 
 export default function ViolationsPanel({ violations, units, onClear }: Props) {
   return (
-    <section className="rounded-xl border border-edge bg-panel p-4">
+    <section>
       <header className="mb-3 flex items-center justify-between gap-3">
         <h3 className="text-sm font-semibold text-slate-200">
-          Infracciones{" "}
+          Registradas{" "}
           <span data-testid="violation-count" className="text-slate-500 tabular-nums">
             ({violations.length})
           </span>
@@ -26,7 +26,7 @@ export default function ViolationsPanel({ violations, units, onClear }: Props) {
             data-testid="export-violations"
             onClick={() => downloadCsv(violations, units)}
             disabled={violations.length === 0}
-            className="rounded-lg border border-edge px-2.5 py-1 text-xs text-slate-300 transition hover:bg-ink disabled:opacity-40"
+            className="rounded-lg border border-edge px-3 py-2 text-xs text-slate-300 transition active:bg-ink disabled:opacity-40"
           >
             CSV
           </button>
@@ -35,7 +35,7 @@ export default function ViolationsPanel({ violations, units, onClear }: Props) {
             data-testid="clear-violations"
             onClick={onClear}
             disabled={violations.length === 0}
-            className="rounded-lg border border-edge px-2.5 py-1 text-xs text-slate-300 transition hover:bg-ink disabled:opacity-40"
+            className="rounded-lg border border-edge px-3 py-2 text-xs text-slate-300 transition active:bg-ink disabled:opacity-40"
           >
             Limpiar
           </button>
@@ -47,12 +47,12 @@ export default function ViolationsPanel({ violations, units, onClear }: Props) {
           Todavia no hay vehiculos por encima del limite.
         </p>
       ) : (
-        <ul data-testid="violation-list" className="max-h-96 space-y-2 overflow-y-auto">
+        <ul data-testid="violation-list" className="space-y-2">
           {violations.map((v) => (
             <li
               key={v.id}
               data-testid="violation-item"
-              className="flex items-center gap-3 rounded-lg border border-red-500/30 bg-red-500/10 p-2"
+              className="flex items-center gap-3 rounded-xl border border-red-500/30 bg-red-500/10 p-2"
             >
               {v.snapshot ? (
                 // eslint-disable-next-line @next/next/no-img-element
