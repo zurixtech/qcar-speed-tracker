@@ -84,13 +84,17 @@ function drawVehicle(
     ctx.fillRect(x, y, bw, bh);
   }
 
-  const speed = formatSpeed(v.mps, opts.units);
-  const text =
-    v.mps === null
-      ? `${vehicleLabel(v.label)} · midiendo…`
-      : `${vehicleLabel(v.label)} · ${speed} ${unitLabel(opts.units)}`;
+  // Mientras no hay lectura, la etiqueta se reduce al nombre del vehiculo y se
+  // dibuja apagada: en una ruta con mucho trafico, media docena de carteles
+  // "midiendo..." se pisan entre si y tapan justamente lo que hay que ver.
+  const measured = v.mps !== null;
+  const text = measured
+    ? `${vehicleLabel(v.label)} · ${formatSpeed(v.mps, opts.units)} ${unitLabel(opts.units)}`
+    : vehicleLabel(v.label);
 
-  const fontSize = Math.max(12, Math.min(20, w * 0.018));
+  const fontSize = measured
+    ? Math.max(12, Math.min(20, w * 0.018))
+    : Math.max(10, Math.min(14, w * 0.012));
   ctx.font = `600 ${fontSize}px system-ui, -apple-system, sans-serif`;
   const padding = fontSize * 0.4;
   const textWidth = ctx.measureText(text).width;
@@ -98,6 +102,7 @@ function drawVehicle(
   // Si la caja toca el borde superior, la etiqueta va adentro.
   const labelY = y - boxH < 0 ? y : y - boxH;
 
+  ctx.globalAlpha = measured ? 1 : 0.65;
   ctx.fillStyle = color;
   ctx.fillRect(x, labelY, textWidth + padding * 2, boxH);
   ctx.fillStyle = v.speeding ? "#fff" : "#0b1220";

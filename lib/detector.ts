@@ -12,12 +12,35 @@ import * as cocoSsd from "@tensorflow-models/coco-ssd";
 import type { ModelVariant } from "./settings";
 import { isVehicleClass, type Detection } from "./types";
 
+/** Ruta donde `scripts/fetch-model.mjs` deja los pesos servidos por la propia app. */
+export function localModelUrl(variant: ModelVariant): string {
+  return `/models/coco-ssd/${variant}/model.json`;
+}
+
+/**
+ * Devuelve la URL del modelo self-hosteado si existe, o null para que la
+ * libreria use su CDN por defecto. Asi la app funciona igual en redes que
+ * bloquean storage.googleapis.com, sin obligar a nadie a bajar 18 MB al repo.
+ */
+async function resolveModelUrl(variant: ModelVariant): Promise<string | null> {
+  if (typeof window === "undefined") return null;
+  const url = localModelUrl(variant);
+  try {
+    const res = await fetch(url, { method: "HEAD" });
+    return res.ok ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export type Detector = {
   /** Corre el modelo sobre el frame actual del video. Devuelve cajas normalizadas. */
   detect(video: HTMLVideoElement, minScore: number): Promise<Detection[]>;
   dispose(): void;
   /** Backend efectivo de TF.js ("webgl" o "cpu"). */
   backend: string;
+  /** De donde salieron los pesos, para mostrarlo al diagnosticar. */
+  source: "local" | "cdn";
 };
 
 const MAX_BOXES = 20;
@@ -43,10 +66,14 @@ export async function ensureBackend(): Promise<string> {
 
 export async function loadDetector(variant: ModelVariant): Promise<Detector> {
   const backend = await ensureBackend();
-  const model = await cocoSsd.load({ base: variant });
+  const modelUrl = await resolveModelUrl(variant);
+  const model = await cocoSsd.load(
+    modelUrl ? { base: variant, modelUrl } : { base: variant },
+  );
 
   return {
     backend,
+    source: modelUrl ? "local" : "cdn",
     dispose: () => model.dispose(),
     async detect(video, minScore) {
       const vw = video.videoWidth;

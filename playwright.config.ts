@@ -5,6 +5,7 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 export default defineConfig({
   testDir: "./tests/e2e",
+  globalSetup: "./tests/e2e/global-setup.ts",
   // El modelo de deteccion se baja del CDN y corre inferencia: los tests del
   // pipeline completo necesitan mucho mas tiempo que un e2e de UI normal.
   timeout: 180_000,

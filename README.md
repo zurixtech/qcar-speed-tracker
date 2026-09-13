@@ -47,7 +47,7 @@ En la página:
 | Paso | Archivo | Qué hace |
 |---|---|---|
 | Detección | `lib/detector.ts` | COCO-SSD sobre WebGL. Filtra a `car`, `truck`, `bus`, `motorcycle`, `bicycle` y normaliza las cajas a 0..1. |
-| Tracking | `lib/tracker.ts` | Asocia las cajas de un frame con las del anterior por IoU (asignación voraz). Sin esto no hay "mismo auto" y no hay velocidad. |
+| Tracking | `lib/tracker.ts` | Asocia las cajas de un frame con las del anterior por IoU sobre la posición **predicha**, con respaldo por cercanía. Sin esto no hay "mismo auto" y no hay velocidad. |
 | Escala | `lib/homography.ts` | Homografía de 4 puntos: convierte el punto de contacto del auto con el asfalto a metros sobre el plano de la calzada. |
 | Velocidad | `lib/speed.ts` | Regresión lineal de la posición en el mundo sobre una ventana de ~0,9 s. La pendiente es el vector velocidad. |
 | Infracciones | `lib/engine.ts` | Suavizado exponencial, confirmación por N lecturas y alta de la infracción (una sola vez por vehículo). |
@@ -59,12 +59,45 @@ varios píxeles por frame. Derivar entre dos frames consecutivos amplifica ese
 ruido y da velocidades que saltan de 40 a 120 km/h. Ajustar una recta a toda la
 ventana promedia el error y da una lectura estable.
 
+**Por qué el tracker predice en vez de comparar contra la última caja.** A 25 fps
+un auto se mueve poco entre frames y su caja solapa consigo misma, así que basta
+con IoU. Pero si el equipo no tiene GPU el detector baja a 2-3 fps, y a esa
+cadencia un auto a 80 km/h recorre más de 7 m por frame: su caja nueva no toca a
+la vieja, el track se parte en uno nuevo cada frame y nunca se junta historial
+para medir. Por eso el matching se hace contra la posición extrapolada de la
+última velocidad conocida, más un respaldo por cercanía (acotado por similitud
+de tamaño) que permite arrancar el track cuando todavía no hay velocidad. Ver
+`lib/tracker.ts`.
+
+Por la misma razón los umbrales van en **milisegundos y no en frames**: un track
+caduca a los 400 ms sin detección, no a los N frames. Contando frames, un valor
+razonable a 25 fps deja cajas fantasma cinco segundos sobre asfalto vacío a
+2 fps.
+
 **Por qué `requestVideoFrameCallback` y no el reloj de pared.** La velocidad se
 calcula dividiendo por el tiempo. Si usáramos `performance.now()` y el análisis
 no llega a tiempo real (típico al procesar un archivo en una máquina lenta), las
 velocidades saldrían infladas. `mediaTime` da el instante exacto de cada frame
 dentro del video, así que el resultado es correcto aunque el análisis vaya más
 lento que la reproducción. Ver `lib/frames.ts`.
+
+### Rango útil según los fps
+
+La ventana de ajuste se estira sola (hasta 2,4 s) cuando faltan muestras, pero
+hay un límite físico: si el vehículo cruza la zona calibrada en menos de medio
+segundo, no hay puntos suficientes. Medido sobre la escena sintética, con una
+zona de 30 m:
+
+| fps | 30 km/h | 50 km/h | 80 km/h | 110 km/h |
+|---|---|---|---|---|
+| 2  | ✅ | ✅ | ❌ | ❌ |
+| 3  | ✅ | ✅ | ✅ | ❌ |
+| 5  | ✅ | ✅ | ✅ | ✅ |
+| 12+ | ✅ | ✅ | ✅ | ✅ |
+
+Con GPU (celular o notebook normal) `lite_mobilenet_v2` corre bastante por
+encima de 12 fps, así que el rango completo está cubierto. Si tu equipo queda
+corto, alargá la zona calibrada: más metros = más tiempo dentro de cuadro.
 
 ---
 
@@ -85,6 +118,13 @@ Las 4 esquinas van **en este orden**:
 
 Si el cuadrilátero queda cruzado o es demasiado chico, la app te avisa y deja de
 medir en vez de mostrar números falsos.
+
+**El error de calibración se traslada entero al resultado.** La homografía es
+lineal en el tamaño del rectángulo declarado: si cargás 30 m donde en realidad
+hay 90, todas las velocidades salen a un tercio. Hay un test que fija esa
+propiedad (`declarar el doble de largo duplica la velocidad medida`). Dicho de
+otra forma: el modelo y la matemática no son la fuente de error acá, la cinta
+métrica sí.
 
 **Medidas de referencia** (Argentina / norma habitual):
 
@@ -125,6 +165,27 @@ Todo queda guardado en `localStorage`, así que sobrevive a recargas.
 
 ---
 
+## El modelo: CDN o self-hosted
+
+Por defecto los pesos se bajan del CDN de Google, que es el comportamiento de
+`@tensorflow-models/coco-ssd`. Si preferís servirlos desde tu propio dominio
+—red corporativa que bloquea `storage.googleapis.com`, o simplemente no querer
+depender de un tercero:
+
+```bash
+npm run fetch:model                      # lite_mobilenet_v2 (17 MB)
+npm run fetch:model mobilenet_v2         # o la variante grande (65 MB)
+```
+
+Eso deja los archivos en `public/models/`, y la app los detecta sola y los usa en
+lugar del CDN. La carpeta está en `.gitignore` para no meter 17 MB en el repo; si
+querés que el deploy los sirva, corré el script antes del build y sacá esa línea.
+
+Los tests end-to-end corren este script automáticamente, así que el pipeline
+completo se testea sin depender de internet.
+
+---
+
 ## Deploy en Vercel
 
 El proyecto es un Next.js estándar: Vercel lo detecta solo, sin configuración.
@@ -144,10 +205,10 @@ ruta.
 
 ### Costo de red
 
-El modelo se baja del CDN de Google (`storage.googleapis.com/tfjs-models`) la
-primera vez: ~18 MB para `lite_mobilenet_v2`, ~65 MB para `mobilenet_v2`.
-Después queda en la caché del navegador. No cuenta contra el ancho de banda de
-Vercel.
+Con la configuración por defecto el modelo se baja del CDN de Google la primera
+vez (~17 MB para `lite_mobilenet_v2`, ~65 MB para `mobilenet_v2`) y después
+queda en la caché del navegador. No cuenta contra el ancho de banda de Vercel.
+Si lo self-hosteás, ese tráfico pasa a ser tuyo.
 
 ---
 
@@ -159,16 +220,16 @@ npm run test:e2e  # end-to-end (Playwright)
 npm run typecheck
 ```
 
-**Unitarios** — toda la matemática, sin DOM ni TensorFlow. `tests/unit/helpers/scene.ts`
+**91 unitarios** — toda la matemática, sin DOM ni TensorFlow. `tests/unit/helpers/scene.ts`
 arma una cámara sintética: proyecta un auto que se mueve a una velocidad
 *conocida* con perspectiva real (la caja se agranda al acercarse, como en un
 video de verdad) y se verifica que el motor mida esa velocidad. Entre 30 y
 110 km/h el error es menor al 1 %, y con 8 px de ruido en las cajas se mantiene
 dentro de 7 km/h.
 
-**End-to-end** — `tests/e2e/ui.spec.ts` cubre la UI, la persistencia y la
+**17 end-to-end** — `tests/e2e/ui.spec.ts` cubre la UI, la persistencia y la
 calibración. `tests/e2e/pipeline.spec.ts` corre el pipeline completo sobre un
-video real de tráfico: baja el modelo, detecta, mide y registra infracciones.
+video real de tráfico: carga el modelo, detecta, mide y registra infracciones.
 
 > El fixture de test es VP9/WebM porque el Chromium de CI viene sin
 > decodificador H.264. El video de demo publicado sí es H.264, que es lo que
@@ -212,7 +273,8 @@ throttling. Re-renderizar React 30 veces por segundo mataría el frame rate.
 - **Motos y bicis**: el punto de contacto con el suelo es menos estable que en un
   auto, así que la lectura es más ruidosa.
 - **Noche y lluvia**: COCO-SSD baja bastante su tasa de detección.
-- **Sin WebGL**: cae a CPU, que anda pero a pocos frames por segundo.
+- **Sin WebGL**: cae a CPU, que anda pero a pocos frames por segundo (ver la
+  tabla de rango útil más arriba).
 
 ---
 

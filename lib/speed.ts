@@ -11,8 +11,18 @@ import type { Projector } from "./homography";
 import type { Point, SpeedEstimate, Track } from "./types";
 
 export type SpeedOptions = {
-  /** Ventana temporal usada para el ajuste, en ms. */
+  /** Ventana temporal preferida para el ajuste, en ms. */
   windowMs: number;
+  /**
+   * Tope al que se puede estirar la ventana cuando faltan muestras.
+   *
+   * A 25 fps la ventana normal trae 20 y pico de puntos, pero en una maquina
+   * sin aceleracion por GPU el detector baja a 2-3 fps y esa misma ventana
+   * queda por debajo de `minSamples`: sin esto, en equipos lentos no se
+   * mediria nunca nada. Estirando la ventana la lectura aparece igual, con
+   * algo mas de retardo.
+   */
+  maxWindowMs: number;
   /** Muestras minimas dentro de la ventana. */
   minSamples: number;
   /** Duracion minima cubierta por la ventana, en ms. */
@@ -25,6 +35,7 @@ export type SpeedOptions = {
 
 export const DEFAULT_SPEED_OPTIONS: SpeedOptions = {
   windowMs: 900,
+  maxWindowMs: 2400,
   minSamples: 4,
   minSpanMs: 250,
   requireInZone: true,
@@ -67,22 +78,32 @@ export function estimateSpeed(
   const last = track.samples.at(-1);
   if (!last) return { mps: null, reason: "insufficient-samples", quality: 0 };
 
-  const cutoff = last.t - options.windowMs;
-  const times: number[] = [];
-  const pts: Point[] = [];
+  // Juntamos todo lo utilizable dentro del tope y, si la ventana preferida ya
+  // alcanza, nos quedamos solo con esa (lectura mas fresca).
+  const maxCutoff = last.t - Math.max(options.windowMs, options.maxWindowMs);
+  const usableTimes: number[] = [];
+  const usablePts: Point[] = [];
   let droppedOutside = 0;
 
   for (const s of track.samples) {
-    if (s.t < cutoff) continue;
+    if (s.t < maxCutoff) continue;
     if (options.requireInZone && !projector.inZone(s.ground)) {
       droppedOutside++;
       continue;
     }
     const world = projector.toWorld(s.ground);
     if (!world) continue;
-    times.push(s.t / 1000);
-    pts.push(world);
+    usableTimes.push(s.t / 1000);
+    usablePts.push(world);
   }
+
+  const preferredFrom = usableTimes.findIndex((t) => t * 1000 >= last.t - options.windowMs);
+  const enoughInPreferred =
+    preferredFrom >= 0 && usableTimes.length - preferredFrom >= options.minSamples;
+  const from = enoughInPreferred ? preferredFrom : 0;
+
+  const times = usableTimes.slice(from);
+  const pts = usablePts.slice(from);
 
   if (pts.length < options.minSamples) {
     const reason = droppedOutside > 0 && pts.length === 0 ? "outside-zone" : "insufficient-samples";

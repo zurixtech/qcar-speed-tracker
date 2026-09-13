@@ -158,6 +158,64 @@ describe("zona de medicion", () => {
   });
 });
 
+describe("la calibracion fija la escala", () => {
+  // Propiedad clave del sistema, y la razon por la que la UI insiste tanto con
+  // la calibracion: la homografia es lineal en el tamano del rectangulo del
+  // mundo, asi que declarar el doble de largo duplica exactamente la velocidad
+  // medida. Un error al cargar los metros se traslada entero al resultado.
+  it("declarar el doble de largo duplica la velocidad medida", () => {
+    const truth = fromKmh(60);
+
+    const read = (lengthMeters: number) => {
+      const cal = { ...SCENE_CALIBRATION, lengthMeters };
+      const proj = createProjector(cal)!;
+      const engine = new RadarEngine({ smoothing: 1 });
+      const frames = simulateApproach({
+        mps: truth,
+        frames: 40,
+        // La simulacion usa la escena original: solo cambia lo que se declara.
+        calibration: SCENE_CALIBRATION,
+      });
+      let result = engine.update([], frames[0].t - 100, proj);
+      for (const f of frames) result = engine.update(f.detections, f.t, proj);
+      return result.vehicles[0].mps!;
+    };
+
+    const base = read(SCENE_CALIBRATION.lengthMeters);
+    const doble = read(SCENE_CALIBRATION.lengthMeters * 2);
+    const mitad = read(SCENE_CALIBRATION.lengthMeters / 2);
+
+    expect(base).toBeCloseTo(truth, 4);
+    expect(doble / base).toBeCloseTo(2, 3);
+    expect(mitad / base).toBeCloseTo(0.5, 3);
+  });
+});
+
+describe("equipos lentos", () => {
+  // Sin aceleracion por GPU el detector baja a unos pocos fps. Todo el pipeline
+  // tiene que seguir funcionando: era el caso que rompia con umbrales contados
+  // en frames en vez de en milisegundos.
+  it("mide igual a 3 fps estirando la ventana de ajuste", () => {
+    const truth = fromKmh(80);
+    const { last } = run({ mps: truth, frames: 10, fps: 3, startY: 29 });
+
+    expect(last.vehicles).toHaveLength(1);
+    expect(last.vehicles[0].mps).not.toBeNull();
+    expect(toKmh(last.vehicles[0].mps!)).toBeGreaterThan(80 * 0.97);
+    expect(toKmh(last.vehicles[0].mps!)).toBeLessThan(80 * 1.03);
+  });
+
+  it("no deja cajas fantasma cuando el vehiculo sale de cuadro a 2 fps", () => {
+    const engine = new RadarEngine({ smoothing: 1 });
+    const frames = simulateApproach({ mps: fromKmh(60), frames: 8, fps: 2, startY: 29 });
+    for (const f of frames) engine.update(f.detections, f.t, projector);
+
+    // Un solo frame vacio, 500 ms despues: el track ya tiene que haber expirado.
+    const after = engine.update([], frames.at(-1)!.t + 500, projector);
+    expect(after.vehicles).toHaveLength(0);
+  });
+});
+
 describe("suavizado", () => {
   // Con velocidad constante el EMA converge al mismo valor con cualquier alfa,
   // asi que el retardo solo se ve sobre una senal que cambia: un auto acelerando.
