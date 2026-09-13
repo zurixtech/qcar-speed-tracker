@@ -251,7 +251,7 @@ largo sin salir a medir con cinta.
 | Medir sin calibrar | Estima la escala con el tamaño del vehículo cuando la zona no da lectura. Aproximado, se marca con `~`. |
 | Campo de visión | El único dato que necesita la estimación automática. ~55° en un móvil en vertical. |
 | Zona + ancho/largo | La calibración. Es la medición precisa. |
-| Confianza mínima | Umbral del detector. Más alto = menos falsos positivos, más autos perdidos. |
+| Confianza mínima | Umbral del detector, por defecto **35 %**. Más alto = menos falsos positivos, más autos perdidos. De noche o con el auto lejos conviene bajarlo todavía más. |
 | Suavizado | Qué tan rápido reacciona la lectura. Bajo = más estable pero con retardo. |
 | Lecturas para confirmar | Cuántas lecturas seguidas sobre el límite hacen falta para dar el alta. Evita infracciones por un pico aislado. |
 | Modelo | `lite_mobilenet_v2` (rápido, ideal en celular) o `mobilenet_v2` (más preciso, más pesado). |
