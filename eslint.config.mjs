@@ -10,6 +10,8 @@ const config = [
       "playwright-report/**",
       "test-results/**",
       "coverage/**",
+      // Worktrees temporales de agentes: traen su propio node_modules y .next.
+      ".claude/**",
       "next-env.d.ts",
     ],
   },

@@ -15,14 +15,14 @@ export default defineConfig({
       // rAF/rVFC); los tests unitarios son codigo puro, asi que quedan
       // afuera del umbral en vez de contarse como sin cobertura.
       exclude: ["lib/detector.ts", "lib/draw.ts", "lib/audio.ts", "lib/frames.ts"],
-      // Medido en 86/89/91/86 (lines/branches/functions/stmts) al escribir
+      // Medido en 97/91/95/97 (lines/branches/functions/stmts) al escribir
       // esto; el umbral queda un poco debajo para no romper con variaciones
       // chicas y todavia detectar una caida real de cobertura.
       thresholds: {
-        lines: 82,
-        branches: 85,
-        functions: 85,
-        statements: 82,
+        lines: 93,
+        branches: 87,
+        functions: 91,
+        statements: 93,
       },
     },
   },

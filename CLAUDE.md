@@ -10,14 +10,16 @@ el navegador (Next.js + TensorFlow.js/COCO-SSD sobre WebGL), sin backend.
 npm run dev        # http://localhost:3000
 npm test           # unitarios (Vitest)
 npm run test:e2e   # end-to-end (Playwright, Pixel 5 emulado)
-npm run typecheck && npx eslint . && npm run build
+npm run check      # typecheck + eslint + unitarios
+npm run test:cov   # unitarios con umbral de cobertura (lo corre CI)
+npm run build      # prebuild baja y verifica el modelo a public/models
 ```
 
-Antes de commitear: typecheck + eslint + `npm test`. Si tocaste UI o pipeline,
+Antes de commitear: `npm run check`. Si tocaste UI o pipeline,
 tambien `npm run test:e2e` (baja el modelo la primera vez, ~17 MB).
 
-Si un test e2e falla raro, revisa que no haya quedado un `next-server` viejo
-corriendo: Playwright reusa el server existente y sirve un build anterior.
+Playwright levanta un build nuevo en cada corrida; solo reusa un server ya
+levantado con `PW_REUSE_SERVER=1` (y ahi puede servir un build viejo).
 
 ## Reglas del proyecto
 
@@ -30,12 +32,17 @@ corriendo: Playwright reusa el server existente y sirve un build anterior.
   el motivo debajo; si salio de la escala automatica, un `~` adelante.
 - **Hay dos escalas y no se mezclan.** La zona calibrada manda; `autoscale.ts`
   es el respaldo aproximado. Un vehiculo que ya se midio sobre la zona no
-  vuelve a leerse por el respaldo (ver `engine.ts`).
+  vuelve a leerse por el respaldo, y al pasar de auto a zona su lectura
+  arranca de cero (ver `engine.ts`). Solo las lecturas de zona labran
+  infracciones.
 - Las coordenadas del pipeline son del frame (0..1). Para pasarlas a pantalla
   siempre via `lib/view.ts`: el video va `object-contain` y casi nunca coincide
   la relacion de aspecto.
 - El bucle de frames no pasa por el estado de React: dibuja en canvas y solo
   empuja contadores con throttling.
+- La sesion (`useRadar.ts`) usa un id de generacion: despues de cada `await`
+  hay que chequear que la sesion siga vigente antes de tocar motor, canvas o
+  estado. Los errores al usuario salen de `lib/errors.ts`, nunca `err.message`.
 - Codigo y comentarios en castellano **sin tildes**; README y textos de UI, con
   tildes. Comentar el *por que*, no el *que*.
 - Los tests unitarios son codigo puro (sin DOM ni TF.js); la escena sintetica

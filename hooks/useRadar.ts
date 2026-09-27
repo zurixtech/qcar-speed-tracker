@@ -105,10 +105,14 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
   const sourceKindRef = useRef<SourceKind>("camera");
   const mountedRef = useRef(true);
 
-  // La calibracion solo se recalcula cuando cambian sus valores, no cada frame.
+  // La calibracion solo se recalcula cuando cambian sus valores. El saneo
+  // devuelve un objeto nuevo en cada cambio de ajustes, asi que la clave es el
+  // contenido: si no, cambiar el limite reiniciaria las lecturas en curso
+  // (el motor las descarta cuando cambia el proyector).
+  const calibrationKey = JSON.stringify(settings.calibration);
   const projector: Projector | null = useMemo(
-    () => createProjector(settings.calibration),
-    [settings.calibration],
+    () => createProjector(JSON.parse(calibrationKey)),
+    [calibrationKey],
   );
 
   // El bucle lee la configuracion viva por referencia: cambiar el limite o la
