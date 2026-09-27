@@ -3,9 +3,12 @@
  *
  * Todo corre en el navegador con WebGL: no hace falta backend ni GPU en el
  * servidor, por eso el deploy en Vercel es un sitio estatico y gratis de operar.
+ *
+ * Este modulo arrastra todo TF.js (~1 MB): importarlo solo con `import()` o
+ * `import type`, para que no entre en el bundle inicial de la pagina.
  */
 import * as tf from "@tensorflow/tfjs-core";
-import "@tensorflow/tfjs-backend-webgl";
+import { MathBackendWebGL } from "@tensorflow/tfjs-backend-webgl";
 import "@tensorflow/tfjs-backend-cpu";
 import * as cocoSsd from "@tensorflow-models/coco-ssd";
 
@@ -17,9 +20,15 @@ export function localModelUrl(variant: ModelVariant): string {
   return `/models/coco-ssd/${variant}/model.json`;
 }
 
+/** Misma URL que arma coco-ssd por defecto (su `BASE_PATH` + prefijo). */
+export function cdnModelUrl(variant: ModelVariant): string {
+  const prefix = variant === "lite_mobilenet_v2" ? `ssd${variant}` : `ssd_${variant}`;
+  return `https://storage.googleapis.com/tfjs-models/savedmodel/${prefix}/model.json`;
+}
+
 /**
- * Devuelve la URL del modelo self-hosteado si existe, o null para que la
- * libreria use su CDN por defecto. Asi la app funciona igual en redes que
+ * Devuelve la URL del modelo self-hosteado si existe, o null para usar el CDN
+ * por defecto de la libreria. Asi la app funciona igual en redes que
  * bloquean storage.googleapis.com, sin obligar a nadie a bajar 18 MB al repo.
  */
 async function resolveModelUrl(variant: ModelVariant): Promise<string | null> {
@@ -64,17 +73,53 @@ export async function ensureBackend(): Promise<string> {
   return backendReady;
 }
 
-export async function loadDetector(variant: ModelVariant): Promise<Detector> {
+/**
+ * Olvida el backend actual para que el proximo `ensureBackend` arranque de
+ * cero. Hace falta tras perder el contexto WebGL: la instancia vieja queda
+ * inservible y TF.js la seguiria usando. Se re-registra la fabrica porque
+ * `removeBackend` tambien la borra.
+ */
+export function resetBackend(): void {
+  backendReady = null;
+  try {
+    tf.removeBackend("webgl");
+  } catch {
+    // Con el contexto perdido el dispose puede tirar; igual queda removido.
+  }
+  if (!tf.findBackendFactory("webgl")) {
+    tf.registerBackend("webgl", () => new MathBackendWebGL(), 2);
+  }
+}
+
+export type LoadOptions = {
+  /** Progreso de la descarga de pesos, de 0 a 1. */
+  onProgress?: (fraction: number) => void;
+};
+
+export async function loadDetector(
+  variant: ModelVariant,
+  { onProgress }: LoadOptions = {},
+): Promise<Detector> {
   const backend = await ensureBackend();
-  const modelUrl = await resolveModelUrl(variant);
-  const model = await cocoSsd.load(
-    modelUrl ? { base: variant, modelUrl } : { base: variant },
-  );
+  const localUrl = await resolveModelUrl(variant);
+  const url = localUrl ?? cdnModelUrl(variant);
+  // `cocoSsd.load` no deja pasar `onProgress`, pero su constructor le entrega
+  // `modelUrl` tal cual a `loadGraphModel`, que acepta un IOHandler ademas de
+  // una URL. Asi se reporta el progreso sin reimplementar el modelo.
+  const handler = tf.io.http(url, { onProgress });
+  const model = new cocoSsd.ObjectDetection(variant, handler as unknown as string);
+  await model.load();
 
   return {
     backend,
-    source: modelUrl ? "local" : "cdn",
-    dispose: () => model.dispose(),
+    source: localUrl ? "local" : "cdn",
+    dispose: () => {
+      try {
+        model.dispose();
+      } catch {
+        // Con el contexto WebGL perdido liberar puede fallar; no importa.
+      }
+    },
     async detect(video, minScore) {
       const vw = video.videoWidth;
       const vh = video.videoHeight;
