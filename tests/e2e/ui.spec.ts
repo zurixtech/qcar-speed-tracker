@@ -144,12 +144,15 @@ test.describe("calibracion", () => {
     const after = await handle.boundingBox();
     expect(after!.x).toBeGreaterThan(before!.x);
 
-    // La esquina se guarda en coordenadas del frame (0..1), no en pixeles.
-    const guardada = await page.evaluate(() => {
-      const raw = window.localStorage.getItem("qcar-speed-tracker:settings:v1");
-      return JSON.parse(raw ?? "{}").calibration.quad[0] as { x: number; y: number };
-    });
-    expect(guardada.x).toBeGreaterThan(0.3);
+    // La esquina se guarda en coordenadas del frame (0..1), no en pixeles. La
+    // escritura en localStorage va agrupada (~300 ms): hay que esperarla.
+    const leerEsquina = () =>
+      page.evaluate(() => {
+        const raw = window.localStorage.getItem("qcar-speed-tracker:settings:v1");
+        return (JSON.parse(raw ?? "{}").calibration?.quad?.[0] ?? null) as { x: number; y: number } | null;
+      });
+    await expect.poll(async () => (await leerEsquina())?.x ?? 0).toBeGreaterThan(0.3);
+    const guardada = (await leerEsquina())!;
 
     await page.reload();
     await openSettings(page);
