@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { createProjector } from "@/lib/homography";
 import {
   DEFAULT_QUAD,
   DEFAULT_SETTINGS,
@@ -164,6 +165,47 @@ describe("sanitizeSettings", () => {
       confirmReadings: 5,
     };
     expect(sanitizeSettings(valid)).toEqual(valid);
+  });
+
+  it("los flags booleanos solo aceptan true/false", () => {
+    expect(sanitizeSettings({ requireInZone: "false" }).requireInZone).toBe(true);
+    expect(sanitizeSettings({ soundAlerts: "no" }).soundAlerts).toBe(true);
+    expect(sanitizeSettings({ autoScale: 0 }).autoScale).toBe(true);
+    expect(sanitizeSettings({ showZone: false }).showZone).toBe(false);
+    expect(sanitizeSettings({ showTrails: false }).showTrails).toBe(false);
+
+    const garbage = sanitizeSettings({
+      requireInZone: 1,
+      autoScale: "si",
+      showZone: {},
+      showTrails: [],
+      soundAlerts: null,
+    });
+    for (const key of ["requireInZone", "autoScale", "showZone", "showTrails", "soundAlerts"] as const) {
+      expect(typeof garbage[key]).toBe("boolean");
+      expect(garbage[key]).toBe(DEFAULT_SETTINGS[key]);
+    }
+  });
+
+  it("un quad cruzado sobrevive al saneo pero no produce proyector", () => {
+    const crossed = sanitizeSettings({
+      calibration: {
+        quad: [
+          { x: 0.3, y: 0.45 },
+          { x: 0.7, y: 0.45 },
+          { x: 0.05, y: 0.92 },
+          { x: 0.95, y: 0.92 },
+        ],
+      },
+    });
+    expect(crossed.calibration.quad[2]).toEqual({ x: 0.05, y: 0.92 });
+    expect(createProjector(crossed.calibration)).toBeNull();
+  });
+
+  it("un quad con los cuatro puntos iguales no produce proyector", () => {
+    const point = { x: 0.5, y: 0.5 };
+    const s = sanitizeSettings({ calibration: { quad: [point, point, point, point] } });
+    expect(createProjector(s.calibration)).toBeNull();
   });
 });
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { bboxCenter, groundPoint, iou, VehicleTracker,
+import { bboxCenter, groundPoint, iou, MAX_TRACK_SAMPLES, VehicleTracker,
   predictBBox,
   proximityScore,
 } from "@/lib/tracker";
@@ -248,5 +248,18 @@ describe("matching con prediccion y cercania", () => {
     expect(tracks).toHaveLength(2);
     expect(tracks.map((t) => t.id).sort()).toEqual([idA, idB].sort());
     for (const t of tracks) expect(t.hits).toBe(2);
+  });
+});
+
+describe("tope de historial", () => {
+  it("un track no acumula mas de MAX_TRACK_SAMPLES muestras aunque lleguen muchos frames", () => {
+    const tracker = new VehicleTracker();
+    const box: BBox = { x: 0.4, y: 0.4, w: 0.1, h: 0.08 };
+    // 1 ms entre frames: la poda por tiempo (3 s) no llega a actuar.
+    for (let i = 0; i < 1000; i++) tracker.update([det(box)], 1000 + i);
+    const tracks = tracker.getTracks();
+    expect(tracks).toHaveLength(1);
+    expect(tracks[0].samples).toHaveLength(MAX_TRACK_SAMPLES);
+    expect(tracks[0].samples.at(-1)!.t).toBe(1999);
   });
 });
