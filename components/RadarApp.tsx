@@ -80,6 +80,17 @@ export default function RadarApp() {
     [radar],
   );
 
+  // El object URL de un video elegido por archivo solo sirve mientras esa
+  // sesion esta activa: liberarlo al Detener evita que el navegador retenga
+  // en memoria un video que ya no se ve.
+  const stopSession = useCallback(() => {
+    radar.stop();
+    if (fileUrlRef.current) {
+      URL.revokeObjectURL(fileUrlRef.current);
+      fileUrlRef.current = null;
+    }
+  }, [radar]);
+
   const flipCamera = useCallback(() => {
     const next: Facing = facing === "environment" ? "user" : "environment";
     setFacing(next);
@@ -89,6 +100,9 @@ export default function RadarApp() {
   const onPickFile = useCallback(
     (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
+      // Se limpia siempre, incluso sin archivo: sin esto, elegir el mismo
+      // archivo dos veces seguidas no dispara un segundo "change".
+      e.target.value = "";
       if (!file) return;
       if (fileUrlRef.current) URL.revokeObjectURL(fileUrlRef.current);
       const url = URL.createObjectURL(file);
@@ -110,6 +124,7 @@ export default function RadarApp() {
 
       <main className="relative flex h-dvh w-full max-w-[520px] flex-col overflow-hidden bg-ink">
         <header
+          data-inert-behind-sheet
           className="flex shrink-0 items-center justify-between gap-2 px-4 pb-2"
           style={{ paddingTop: "max(0.75rem, env(safe-area-inset-top))" }}
         >
@@ -122,6 +137,7 @@ export default function RadarApp() {
           <StatusBadge status={radar.status} fps={radar.stats.fps} />
         </header>
 
+        <div data-inert-behind-sheet className="flex min-h-0 flex-1 flex-col">
         <VideoStage
           videoRef={videoRef}
           canvasRef={canvasRef}
@@ -133,16 +149,17 @@ export default function RadarApp() {
             radar.status === "idle" || radar.status === "error" ? (
               <div className="max-w-xs">
                 <p className="text-base font-semibold text-slate-100">
-                  Apunta el telefono a la calle
+                  Apuntá el teléfono a la calle
                 </p>
                 <p className="mt-2 text-xs leading-relaxed text-slate-400">
-                  Apoyalo firme, tocá <strong>Camara</strong> y el radar sigue hasta{" "}
-                  {settings.maxVehicles === 1 ? "un vehiculo" : "dos vehiculos"} a la vez,
+                  Apoyalo firme, tocá <strong>Cámara</strong> y el radar sigue hasta{" "}
+                  {settings.maxVehicles === 1 ? "un vehículo" : "dos vehículos"} a la vez,
                   con la velocidad adentro del recuadro.
                 </p>
                 {radar.error && (
                   <p
                     data-testid="radar-error"
+                    role="alert"
                     className="mt-3 rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-300"
                   >
                     {radar.error}
@@ -150,11 +167,40 @@ export default function RadarApp() {
                 )}
               </div>
             ) : busy ? (
-              <p data-testid="radar-busy" className="text-sm text-slate-200">
-                {radar.status === "loading-model"
-                  ? "Descargando el modelo de deteccion…"
-                  : "Iniciando la camara…"}
-              </p>
+              <div
+                data-testid="radar-busy"
+                role="status"
+                aria-live="polite"
+                className="w-full max-w-[220px] text-sm text-slate-200"
+              >
+                <p>
+                  {radar.status === "loading-model"
+                    ? "Descargando el modelo de detección…"
+                    : "Iniciando la cámara…"}
+                </p>
+                {radar.status === "loading-model" && radar.loadProgress !== null ? (
+                  <>
+                    <div
+                      role="progressbar"
+                      aria-label="Progreso de la descarga"
+                      aria-valuenow={Math.round(radar.loadProgress * 100)}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      className="mt-3 h-2 w-full overflow-hidden rounded-full bg-white/10"
+                    >
+                      <div
+                        className="h-full rounded-full bg-sky-500 transition-[width]"
+                        style={{ width: `${Math.round(radar.loadProgress * 100)}%` }}
+                      />
+                    </div>
+                    <p className="mt-1 text-xs tabular-nums text-slate-400">
+                      {Math.round(radar.loadProgress * 100)}%
+                    </p>
+                  </>
+                ) : radar.status === "loading-model" ? (
+                  <p className="mt-2 text-xs text-slate-400">Esto puede tardar un rato…</p>
+                ) : null}
+              </div>
             ) : null
           }
         >
@@ -170,7 +216,7 @@ export default function RadarApp() {
           {calibrating && (
             <div className="pointer-events-auto absolute inset-x-0 bottom-3 z-30 flex flex-col items-center gap-2 px-4">
               <p className="rounded-full bg-black/70 px-3 py-1.5 text-center text-[11px] text-slate-200">
-                Arrastra las 4 esquinas sobre el tramo de calle que queres medir.
+                Arrastrá las 4 esquinas sobre el tramo de calle que querés medir.
               </p>
               <button
                 type="button"
@@ -183,8 +229,10 @@ export default function RadarApp() {
             </div>
           )}
         </VideoStage>
+        </div>
 
         <nav
+          data-inert-behind-sheet
           className="shrink-0 space-y-3 border-t border-edge bg-ink px-4 pt-3"
           style={{ paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))" }}
         >
@@ -198,7 +246,7 @@ export default function RadarApp() {
                   onClick={() => void startSource({ kind: "camera", facing })}
                   className="flex-1 rounded-2xl bg-sky-500 py-3.5 text-sm font-semibold text-white active:bg-sky-600 disabled:opacity-50"
                 >
-                  Camara
+                  Cámara
                 </button>
                 <button
                   type="button"
@@ -226,7 +274,7 @@ export default function RadarApp() {
                 <button
                   type="button"
                   data-testid="stop"
-                  onClick={radar.stop}
+                  onClick={stopSession}
                   className="flex-1 rounded-2xl bg-red-500 py-3.5 text-sm font-semibold text-white active:bg-red-600"
                 >
                   Detener
@@ -235,7 +283,7 @@ export default function RadarApp() {
                   <button
                     type="button"
                     data-testid="flip-camera"
-                    aria-label="Cambiar de camara"
+                    aria-label="Cambiar de cámara"
                     onClick={flipCamera}
                     className="rounded-2xl border border-edge px-4 py-3.5 text-sm font-medium text-slate-200 active:bg-panel"
                   >
@@ -251,7 +299,7 @@ export default function RadarApp() {
               type="button"
               data-testid="open-settings"
               onClick={() => setSheet((s) => (s === "settings" ? null : "settings"))}
-              className="flex-1 rounded-xl border border-edge py-2.5 text-xs font-medium text-slate-300 active:bg-panel"
+              className="min-h-11 flex-1 rounded-xl border border-edge py-3 text-sm font-medium text-slate-300 active:bg-panel"
             >
               Ajustes
             </button>
@@ -259,10 +307,10 @@ export default function RadarApp() {
               type="button"
               data-testid="open-violations"
               onClick={() => setSheet((s) => (s === "violations" ? null : "violations"))}
-              className="flex-1 rounded-xl border border-edge py-2.5 text-xs font-medium text-slate-300 active:bg-panel"
+              className="min-h-11 flex-1 rounded-xl border border-edge py-3 text-sm font-medium text-slate-300 active:bg-panel"
             >
               Infracciones
-              <span data-testid="violation-badge" className="ml-1 tabular-nums text-slate-500">
+              <span data-testid="violation-badge" className="ml-1 tabular-nums text-slate-400">
                 ({radar.violations.length})
               </span>
             </button>
@@ -295,8 +343,8 @@ export default function RadarApp() {
                 modelLocked={running || busy}
               />
               <p className="mt-4 rounded-xl border border-amber-500/25 bg-amber-500/10 px-3 py-2.5 text-[11px] leading-relaxed text-amber-200/90">
-                <strong>Prueba de concepto.</strong> La velocidad es una estimacion basada en la
-                calibracion y en el angulo de la camara. No sirve como prueba legal.
+                <strong>Prueba de concepto.</strong> La velocidad es una estimación basada en la
+                calibración y en el ángulo de la cámara. No sirve como prueba legal.
               </p>
             </>
           )}
@@ -318,8 +366,8 @@ function DesktopHint() {
   return (
     <p className="pointer-events-none fixed top-1/2 left-8 hidden w-56 -translate-y-1/2 text-xs leading-relaxed text-slate-500 xl:block">
       <strong className="block text-slate-300">QCar Radar es una app de celular.</strong>
-      Abri esta pagina en el telefono: necesita la camara trasera apuntando a la calle. Aca la
-      ves tal cual se ve en un movil.
+      Abrí esta página en el teléfono: necesita la cámara trasera apuntando a la calle. Acá la
+      ves tal cual se ve en un móvil.
     </p>
   );
 }
@@ -349,7 +397,12 @@ function StatusBadge({ status, fps }: { status: string; fps: number }) {
       data-status={status}
       className={`rounded-full px-2.5 py-1 text-[11px] font-semibold tabular-nums ${tone}`}
     >
-      {text}
+      {/* Los fps cambian varias veces por segundo: anunciar eso sería ruido.
+          Lo que le sirve a un lector de pantalla es solo el cambio de estado. */}
+      <span aria-hidden="true">{text}</span>
+      <span className="sr-only" role="status" aria-live="polite">
+        {status === "running" ? "En vivo" : text}
+      </span>
     </span>
   );
 }
@@ -376,10 +429,10 @@ function StatsStrip({
         <strong data-testid="stat-vehicles" className="text-white">
           {vehicles}
         </strong>
-        <span className="text-slate-400">
+        <span className="text-slate-300">
           /<span data-testid="stat-detected">{detected}</span>
         </span>
-        <span className="text-slate-500"> max {max}</span>
+        <span className="text-slate-400"> max {max}</span>
       </Chip>
       <Chip label="Midiendo">
         <strong data-testid="stat-measuring" className="text-white">
@@ -391,7 +444,7 @@ function StatsStrip({
           {speeding}
         </strong>
       </Chip>
-      <Chip label="Limite">
+      <Chip label="Límite">
         <strong data-testid="stat-limit" className="text-white">
           {limit}
         </strong>
@@ -410,13 +463,13 @@ function Chip({
   tone?: "default" | "alert" | "live";
 }) {
   const tones = {
-    default: "bg-black/55 text-slate-400",
+    default: "bg-black/55 text-slate-300",
     live: "bg-black/55 text-emerald-300",
     alert: "bg-red-500/80 text-white",
   } as const;
   return (
     <span
-      className={`rounded-lg px-1.5 py-1 text-[10px] font-medium tabular-nums backdrop-blur-sm ${tones[tone]}`}
+      className={`rounded-lg px-1.5 py-1 text-xs font-medium tabular-nums backdrop-blur-sm ${tones[tone]}`}
     >
       {label} {children}
     </span>
