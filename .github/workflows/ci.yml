@@ -2,7 +2,8 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    # Rama por defecto del repo.
+    branches: [claude/car-speed-detector-5p5v03]
   pull_request:
 
 jobs:
