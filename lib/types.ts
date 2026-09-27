@@ -110,6 +110,8 @@ export type Violation = {
   limitMps: number;
   /** Fecha en ms epoch (Date.now()). */
   at: number;
+  /** Escala de la lectura que confirmo la infraccion. */
+  source: SpeedSource;
   /** Captura del frame en el momento de la infraccion (data URL), si se pudo tomar. */
   snapshot?: string;
 };

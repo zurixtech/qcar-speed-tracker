@@ -155,6 +155,7 @@ export class RadarEngine {
           mps,
           limitMps: opts.limitMps,
           at: Date.now(),
+          source: st.source ?? "zone",
         });
       }
 

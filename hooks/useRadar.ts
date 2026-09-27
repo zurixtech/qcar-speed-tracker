@@ -58,6 +58,8 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
   const [source, setSource] = useState<Source | null>(null);
   const [stats, setStats] = useState<RadarStats>(EMPTY_STATS);
   const [violations, setViolations] = useState<Violation[]>([]);
+  // Progreso de descarga del modelo (0..1); null cuando no se esta bajando.
+  const [loadProgress] = useState<number | null>(null);
 
   const engineRef = useRef<RadarEngine>(null);
   engineRef.current ??= new RadarEngine();
@@ -284,6 +286,7 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
     violations,
     projector,
     calibrationValid: projector !== null,
+    loadProgress,
     start,
     stop,
     clearViolations,
