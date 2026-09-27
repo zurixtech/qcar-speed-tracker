@@ -17,9 +17,9 @@ escritorio. Los tests end-to-end corren sobre un teléfono emulado (Pixel 5).
 servidor: el modelo de detección se descarga una vez y la inferencia se hace con
 WebGL en el dispositivo. Por eso el deploy en Vercel es un sitio estático.
 
-> ⚠️ **Es un POC.** La velocidad es una estimación que depende enteramente de la
-> calibración que cargues y del ángulo de la cámara. No sirve como prueba legal
-> ni reemplaza a un radar homologado.
+> ⚠️ **No es un radar homologado.** La velocidad es una estimación que depende
+> enteramente de la calibración que cargues y del ángulo de la cámara. No sirve
+> como prueba legal.
 
 ---
 
@@ -157,7 +157,9 @@ cinta métrica en la calibración manual: si todas las velocidades salen altas,
 bajá el ángulo; si salen bajas, subilo.
 
 Precisión esperada: **±20-30 %** en buenas condiciones. Sirve para saber si un
-auto va a 40 o a 90; no para labrar una multa.
+auto va a 40 o a 90; no para labrar una multa. Por eso **una lectura con `~`
+nunca registra una infracción**: si supera el límite el recuadro se pinta de
+rojo, pero solo las lecturas sobre la zona calibrada llegan a la lista.
 
 **Cuándo NO usarlo:**
 
@@ -172,7 +174,14 @@ auto va a 40 o a 90; no para labrar una multa.
 La calibración manual gana siempre que exista: si el auto está dentro de la zona
 calibrada se usa esa medición, y una vez que un vehículo se midió por ahí, la
 estimación aproximada ya no la pisa (al salir del trapecio la lectura se
-congela en el último valor bueno en lugar de saltar a uno peor).
+congela en el último valor bueno en lugar de saltar a uno peor). Al revés,
+cuando un vehículo medido con `~` entra en la zona, su lectura y su pico
+arrancan de cero sobre la escala calibrada: las dos escalas no se promedian.
+Lo mismo pasa al mover la calibración con el radar andando.
+
+Las cajas **cortadas por el borde del cuadro** no se usan para medir (por los
+costados en la escala automática, por abajo en la zona): cuando un auto sale de
+cuadro su caja se achica y daría picos falsos de velocidad.
 
 ### Por qué la caja dice "--"
 
@@ -261,24 +270,29 @@ Todo queda guardado en `localStorage`, así que sobrevive a recargas.
 
 ---
 
-## El modelo: CDN o self-hosted
+## El modelo: self-hosted, con el CDN de respaldo
 
-Por defecto los pesos se bajan del CDN de Google, que es el comportamiento de
-`@tensorflow-models/coco-ssd`. Si preferís servirlos desde tu propio dominio
-—red corporativa que bloquea `storage.googleapis.com`, o simplemente no querer
-depender de un tercero:
+`npm run build` corre antes `scripts/fetch-model.mjs` (hook `prebuild`), que baja
+los pesos de `lite_mobilenet_v2` a `public/models/` y verifica tamaño y
+**sha256** de cada archivo. Así el deploy sirve el modelo desde el mismo dominio
+y la app no depende de `storage.googleapis.com`. La carpeta sigue en
+`.gitignore`: se genera en cada build, no se versiona.
+
+Si el build no tiene salida a internet, el script avisa y sigue: la app detecta
+que no hay modelo local y cae al CDN de Google, que es el comportamiento por
+defecto de `@tensorflow-models/coco-ssd`. La variante grande se baja a mano:
 
 ```bash
-npm run fetch:model                      # lite_mobilenet_v2 (17 MB)
-npm run fetch:model mobilenet_v2         # o la variante grande (65 MB)
+npm run fetch:model mobilenet_v2         # 65 MB
 ```
 
-Eso deja los archivos en `public/models/`, y la app los detecta sola y los usa en
-lugar del CDN. La carpeta está en `.gitignore` para no meter 17 MB en el repo; si
-querés que el deploy los sirva, corré el script antes del build y sacá esa línea.
+`/models/*` se sirve con `Cache-Control: immutable` por un año. Si alguna vez
+cambian los pesos, cambiá también la ruta (los hashes fijados en el script
+impiden que cambien sin querer).
 
-Los tests end-to-end corren este script automáticamente, así que el pipeline
-completo se testea sin depender de internet.
+La descarga (~17 MB) muestra el progreso real y tiene un límite de 60 s; si se
+corta, sale un mensaje y el botón reintenta. TensorFlow.js se baja recién al
+iniciar la primera sesión, así que la pantalla inicial abre rápido.
 
 ---
 
@@ -293,7 +307,17 @@ vercel --prod     # producción
 ```
 
 O desde la web: **Add New → Project**, importás el repo, y **Deploy**. No hay
-variables de entorno que cargar.
+variables de entorno que cargar. Node **20.9 o más nuevo** (`.nvmrc` fija 22).
+
+`next.config.ts` agrega los headers de seguridad a todas las rutas: CSP,
+`X-Frame-Options: DENY`, `nosniff`, `Referrer-Policy` y un `Permissions-Policy`
+que solo habilita la cámara para el propio origen. La CSP necesita
+`'unsafe-eval'` porque el backend WebGL de TF.js compila sus kernels en tiempo de
+ejecución, y deja `storage.googleapis.com` en `connect-src` para el respaldo del
+modelo.
+
+La app se puede **instalar** (Agregar a la pantalla de inicio): tiene manifest e
+íconos, y abre a pantalla completa.
 
 Vercel sirve todo por HTTPS, que es justamente lo que el navegador exige para
 darle acceso a la cámara. Desde el celular, abrís la URL y ya podés apuntar a la
@@ -301,22 +325,27 @@ ruta.
 
 ### Costo de red
 
-Con la configuración por defecto el modelo se baja del CDN de Google la primera
-vez (~17 MB para `lite_mobilenet_v2`, ~65 MB para `mobilenet_v2`) y después
-queda en la caché del navegador. No cuenta contra el ancho de banda de Vercel.
-Si lo self-hosteás, ese tráfico pasa a ser tuyo.
+El modelo se sirve desde tu deploy: ~17 MB por visitante nuevo con
+`lite_mobilenet_v2` (~65 MB con `mobilenet_v2`), que cuentan contra el ancho de
+banda de Vercel. Después queda en la caché del navegador. Si preferís que ese
+tráfico lo pague Google, borrá el hook `prebuild` y la app usa el CDN.
 
 ---
 
 ## Tests
 
 ```bash
-npm test          # unitarios (Vitest)
+npm run check     # typecheck + eslint + unitarios
+npm run test:cov  # unitarios con umbral de cobertura sobre lib/
 npm run test:e2e  # end-to-end (Playwright)
-npm run typecheck
 ```
 
-**129 unitarios** — toda la matemática, sin DOM ni TensorFlow. `tests/unit/helpers/scene.ts`
+GitHub Actions (`.github/workflows/ci.yml`) corre `check`, cobertura y build en
+cada PR, y después los end-to-end con el modelo cacheado. En local, Playwright
+levanta siempre un build nuevo; para reusar un server que ya está corriendo,
+`PW_REUSE_SERVER=1 npm run test:e2e`.
+
+**188 unitarios** — toda la matemática, sin DOM ni TensorFlow. `tests/unit/helpers/scene.ts`
 arma una cámara sintética: proyecta un auto que se mueve a una velocidad
 *conocida* con perspectiva real (la caja se agranda al acercarse, como en un
 video de verdad) y se verifica que el motor mida esa velocidad. Entre 30 y
@@ -326,7 +355,9 @@ dentro de 7 km/h.
 Además de la escena sintética, `tests/unit/selection.test.ts` fija el límite de
 1-2 vehículos (a quién elige, la histeresis, que solo los elegidos labran
 infracción) y `tests/unit/view.test.ts` la geometría del frame dentro de la
-pantalla.
+pantalla. `tests/unit/engine-flow.test.ts` cubre los casos de borde del motor:
+video que vuelve a empezar, frames repetidos, cambio de escala a mitad de
+pasada y que la escala automática nunca labre infracciones.
 
 **21 end-to-end**, todos sobre un **Pixel 5 emulado** — `tests/e2e/ui.spec.ts`
 cubre la pantalla del celular (que entre sin scroll), la hoja de ajustes, la
@@ -357,7 +388,9 @@ lib/
   engine.ts          Pipeline completo (código puro, testeable)
   draw.ts            Overlay en canvas (velocidad dentro del recuadro)
   view.ts            Dónde cae el frame dentro de la pantalla
-  settings.ts        Configuración, validación y persistencia
+  settings.ts        Configuración y validación
+  settingsStore.ts   Persistencia en localStorage (agrupada cada 300 ms)
+  errors.ts          Errores del navegador → mensajes en castellano
   frames.ts          Bucle de frames con mediaTime
 tests/unit/          Vitest
 tests/e2e/           Playwright
@@ -366,6 +399,31 @@ tests/e2e/           Playwright
 El bucle de detección **no pasa por el estado de React**: dibuja directo sobre el
 canvas y solo empuja datos livianos (fps, contadores, infracciones) con
 throttling. Re-renderizar React 30 veces por segundo mataría el frame rate.
+
+---
+
+## En el celular, de verdad
+
+Lo que pasa fuera del camino feliz:
+
+- **La pantalla no se apaga** mientras el radar está en vivo (Screen Wake Lock,
+  donde el navegador lo soporta).
+- **Segundo plano**: al cambiar de app el radar se pausa y al volver se reanuda
+  solo. Las lecturas en curso se descartan, porque el hueco de tiempo daría
+  velocidades absurdas. Lo mismo si el video vuelve a empezar o salta.
+- **Cámara perdida** (otra app la toma, entra una llamada) o **WebGL perdido**:
+  el estado pasa a error con un mensaje claro y el botón *Cámara* reintenta. Si
+  no llegan frames, el contador de fps baja a 0 en vez de quedar congelado.
+- **Sin HTTPS**: la app avisa antes de bajar el modelo.
+- **Permisos y errores del navegador** se muestran en castellano; el detalle
+  técnico va a la consola.
+- **Sonido en iOS**: el bip queda habilitado desde el toque que inicia el radar.
+- **Si algo rompe el render**, hay una pantalla de error con *Reintentar* y
+  *Restaurar ajustes*.
+- **Accesibilidad**: la hoja inferior es un diálogo modal (Escape la cierra, el
+  foco entra y vuelve), los estados se anuncian al lector de pantalla, los
+  botones miden al menos 44 px y se puede hacer zoom con los dedos.
+- *Limpiar* en infracciones pide un segundo toque para confirmar.
 
 ---
 
@@ -387,6 +445,11 @@ throttling. Re-renderizar React 30 veces por segundo mataría el frame rate.
   automática*).
 - **Sin WebGL**: cae a CPU, que anda pero a pocos frames por segundo (ver la
   tabla de rango útil más arriba).
+- **Suavizado por lecturas, no por tiempo**: el suavizado y las lecturas para
+  confirmar se cuentan en frames, así que un equipo lento reacciona más despacio
+  que uno rápido.
+- **Infracciones en memoria**: la lista vive en la sesión; recargar la página la
+  borra. Exportá el CSV antes.
 - **Solo 1 o 2 autos**: es una decisión de producto, no una limitación técnica.
   Si pasan tres juntos, el tercero se ve en el contador pero no se mide.
 

@@ -35,7 +35,7 @@ export function speedHint(reason?: SpeedEstimate["reason"]): string {
 
 const LABELS: Record<string, string> = {
   car: "Auto",
-  truck: "Camion",
+  truck: "Camión",
   bus: "Colectivo",
   motorcycle: "Moto",
   bicycle: "Bici",

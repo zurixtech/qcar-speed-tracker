@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    # Rama por defecto del repo.
+    branches: [claude/car-speed-detector-5p5v03]
+  pull_request:
+
+jobs:
+  check:
+    name: typecheck + lint + test + build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npx eslint .
+      - run: npm run test:cov
+      - run: npm run build
+
+  e2e:
+    name: playwright (pipeline + ui)
+    needs: check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      # El modelo (~17 MB) no cambia salvo que cambiemos el script que lo
+      # baja: cachearlo evita pegarle al CDN de Google en cada corrida.
+      - uses: actions/cache@v4
+        with:
+          path: public/models
+          key: models-${{ hashFiles('scripts/fetch-model.mjs') }}
+      - run: npm run test:e2e
+        env:
+          CI: "1"
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-report
+          path: playwright-report/
+          retention-days: 14

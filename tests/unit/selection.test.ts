@@ -146,3 +146,45 @@ describe("a quien elige el radar", () => {
     expect(last.vehicles[0].bbox.w).toBe(cercano.bbox.w);
   });
 });
+
+describe("tope de vehiculos y falsos positivos", () => {
+  const chico = car(0.1, 0.5, 0.06);
+  const mediano = car(0.4, 0.55, 0.12);
+  const grande = car(0.7, 0.6, 0.2);
+  const escena = repeat([chico, mediano, grande], 12);
+
+  it("nunca sigue mas de dos aunque se pida mas", () => {
+    const engine = new RadarEngine({ smoothing: 1, maxVehicles: 3 });
+    expect(feed(engine, escena).vehicles).toHaveLength(2);
+  });
+
+  it("con maxVehicles=0 o invalido sigue al menos uno y no mas de dos", () => {
+    expect(feed(new RadarEngine({ smoothing: 1, maxVehicles: 0 }), escena).vehicles).toHaveLength(1);
+    const nan = feed(new RadarEngine({ smoothing: 1, maxVehicles: Number.NaN }), escena);
+    expect(nan.vehicles.length).toBeGreaterThanOrEqual(1);
+    expect(nan.vehicles.length).toBeLessThanOrEqual(2);
+  });
+
+  it("setOptions({maxVehicles: 1}) a mitad de escena reduce a 1 vehiculo en el frame siguiente", () => {
+    const engine = new RadarEngine({ smoothing: 1, maxVehicles: 2 });
+    expect(feed(engine, escena).vehicles).toHaveLength(2);
+    engine.setOptions({ maxVehicles: 1 });
+    const next = engine.update([chico, mediano, grande], 1000 + 12 * 40, projector);
+    expect(next.vehicles).toHaveLength(1);
+    expect(next.vehicles[0].bbox.w).toBe(grande.bbox.w);
+  });
+
+  it("una caja grande de un solo frame no le roba el lugar a un vehiculo confirmado", () => {
+    const engine = new RadarEngine({ smoothing: 1, maxVehicles: 1 });
+    const elegido = car(0.2, 0.5, 0.08);
+    feed(engine, repeat([elegido], 10));
+
+    // Falso positivo enorme, visto una sola vez.
+    const fantasma = car(0.55, 0.3, 0.4);
+    const frame = engine.update([elegido, fantasma], 1400, projector);
+    expect(frame.vehicles).toHaveLength(1);
+    expect(frame.vehicles[0].bbox.w).toBe(elegido.bbox.w);
+    // Se cuenta igual, aunque no se lo mida.
+    expect(frame.detected).toBe(2);
+  });
+});

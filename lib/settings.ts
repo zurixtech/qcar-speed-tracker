@@ -85,6 +85,9 @@ const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v
 const num = (v: unknown, fallback: number): number =>
   typeof v === "number" && Number.isFinite(v) ? v : fallback;
 
+/** Solo un booleano de verdad: "false" o 0 en el storage no pueden prender nada. */
+const bool = (v: unknown, fallback: boolean): boolean => (typeof v === "boolean" ? v : fallback);
+
 function sanitizeQuad(value: unknown): Quad {
   if (!Array.isArray(value) || value.length !== 4) return DEFAULT_QUAD;
   const pts = value.map((p, i) => {
@@ -112,13 +115,13 @@ export function sanitizeSettings(value: unknown): Settings {
       widthMeters: clamp(num(cal.widthMeters, DEFAULT_SETTINGS.calibration.widthMeters), 0.5, 200),
       lengthMeters: clamp(num(cal.lengthMeters, DEFAULT_SETTINGS.calibration.lengthMeters), 0.5, 500),
     },
-    requireInZone: raw.requireInZone ?? DEFAULT_SETTINGS.requireInZone,
-    autoScale: raw.autoScale ?? DEFAULT_SETTINGS.autoScale,
+    requireInZone: bool(raw.requireInZone, DEFAULT_SETTINGS.requireInZone),
+    autoScale: bool(raw.autoScale, DEFAULT_SETTINGS.autoScale),
     cameraFovDeg: clamp(num(raw.cameraFovDeg, DEFAULT_SETTINGS.cameraFovDeg), 20, 140),
     smoothing: clamp(num(raw.smoothing, DEFAULT_SETTINGS.smoothing), 0.05, 1),
-    showZone: raw.showZone ?? DEFAULT_SETTINGS.showZone,
-    showTrails: raw.showTrails ?? DEFAULT_SETTINGS.showTrails,
-    soundAlerts: raw.soundAlerts ?? DEFAULT_SETTINGS.soundAlerts,
+    showZone: bool(raw.showZone, DEFAULT_SETTINGS.showZone),
+    showTrails: bool(raw.showTrails, DEFAULT_SETTINGS.showTrails),
+    soundAlerts: bool(raw.soundAlerts, DEFAULT_SETTINGS.soundAlerts),
     confirmReadings: Math.round(
       clamp(num(raw.confirmReadings, DEFAULT_SETTINGS.confirmReadings), 1, 15),
     ),

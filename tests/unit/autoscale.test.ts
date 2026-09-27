@@ -159,3 +159,29 @@ describe("estimateSpeed sin calibracion", () => {
     expect(read(angostoDeg) / read(DEFAULT_FOV_DEG)).toBeCloseTo(2, 3);
   });
 });
+
+describe("cajas cortadas por el costado", () => {
+  it("un auto que sale por el borde derecho no genera una velocidad fantasma", () => {
+    // El detector recorta la caja a la imagen: el ancho se achica y, sin el
+    // descarte, la escala lo leeria como un auto alejandose a toda velocidad.
+    const samples: TrackSample[] = Array.from({ length: 20 }, (_, i) => {
+      const w = 0.2 - i * 0.008;
+      const bbox = { x: 1 - w, y: 0.4, w, h: 0.12 };
+      return { t: 1000 + i * 40, bbox, ground: groundPoint(bbox) };
+    });
+    const result = estimateSpeed(trackFrom(samples), null);
+    expect(result.mps).toBeNull();
+  });
+
+  it("tampoco usa cajas pegadas al borde izquierdo", () => {
+    const moving = recedingTrack(fromKmh(60));
+    const clipped = trackFrom(
+      moving.samples.map((s) => {
+        const bbox = { ...s.bbox, x: 0 };
+        return { ...s, bbox, ground: groundPoint(bbox) };
+      }),
+    );
+    expect(estimateSpeed(moving, null).mps).not.toBeNull();
+    expect(estimateSpeed(clipped, null).mps).toBeNull();
+  });
+});

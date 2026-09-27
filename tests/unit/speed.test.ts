@@ -213,3 +213,34 @@ describe("estimateSpeed", () => {
     expect(b.mps!).toBeCloseTo(a.mps!, 6);
   });
 });
+
+describe("cajas cortadas por el borde del cuadro", () => {
+  const zoneOnly = { ...DEFAULT_SPEED_OPTIONS, requireInZone: false, autoScale: false };
+
+  /** Auto cruzando de izquierda a derecha con la base de la caja en `bottom`. */
+  const crossing = (bottom: number) =>
+    trackFrom(
+      Array.from({ length: 20 }, (_, i) =>
+        sample(1000 + i * 40, { x: 0.3 + i * 0.01, y: bottom - 0.08, w: 0.1, h: 0.08 }),
+      ),
+    );
+
+  it("la zona descarta muestras con el borde inferior cortado (no se ve el apoyo)", () => {
+    const result = estimateSpeed(crossing(1), projector, zoneOnly);
+    expect(result.mps).toBeNull();
+  });
+
+  it("la misma pasada con el apoyo visible si se mide", () => {
+    expect(estimateSpeed(crossing(0.97), projector, zoneOnly).mps).not.toBeNull();
+  });
+
+  it("la zona descarta muestras cortadas de costado (la base se corre a media velocidad)", () => {
+    // Saliendo por la izquierda: x queda en 0 y el ancho se achica.
+    const leaving = trackFrom(
+      Array.from({ length: 20 }, (_, i) =>
+        sample(1000 + i * 40, { x: 0, y: 0.89, w: 0.2 - i * 0.008, h: 0.08 }),
+      ),
+    );
+    expect(estimateSpeed(leaving, projector, zoneOnly).mps).toBeNull();
+  });
+});

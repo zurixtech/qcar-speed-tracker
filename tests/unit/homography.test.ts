@@ -9,6 +9,7 @@ import {
   worldQuad,
   type Quad,
 } from "@/lib/homography";
+import { DEFAULT_QUAD } from "@/lib/settings";
 import type { Point } from "@/lib/types";
 
 /** Cuadrado unitario en sentido antihorario (y hacia arriba). */
@@ -196,6 +197,51 @@ describe("pointInPolygon", () => {
   it("trata los bordes/vertices como parte de adentro", () => {
     expect(pointInPolygon({ x: 0.5, y: 0 }, UNIT_SQUARE)).toBe(true);
     expect(pointInPolygon({ x: 0, y: 0 }, UNIT_SQUARE)).toBe(true);
+  });
+
+  it("los bordes derecho e inferior tambien cuentan como dentro", () => {
+    expect(pointInPolygon({ x: 1, y: 0.5 }, UNIT_SQUARE)).toBe(true);
+    expect(pointInPolygon({ x: 0.5, y: 1 }, UNIT_SQUARE)).toBe(true);
+    expect(pointInPolygon({ x: 1, y: 1 }, UNIT_SQUARE)).toBe(true);
+    expect(pointInPolygon({ x: 0, y: 0.5 }, UNIT_SQUARE)).toBe(true);
+  });
+
+  it("un apoyo justo sobre el borde cercano del trapecio por defecto esta en zona", () => {
+    expect(pointInPolygon({ x: 0.5, y: 0.92 }, DEFAULT_QUAD)).toBe(true);
+    expect(pointInPolygon({ x: 0.5, y: 0.921 }, DEFAULT_QUAD)).toBe(false);
+  });
+
+  it("un punto sobre la prolongacion de un borde, fuera del segmento, sigue afuera", () => {
+    expect(pointInPolygon({ x: 1.5, y: 1 }, UNIT_SQUARE)).toBe(false);
+    expect(pointInPolygon({ x: 1, y: -0.5 }, UNIT_SQUARE)).toBe(false);
+  });
+});
+
+describe("createProjector: horizonte", () => {
+  const p = createProjector({ quad: DEFAULT_QUAD, widthMeters: 7, lengthMeters: 25 })!;
+
+  it("devuelve null para puntos por encima del horizonte", () => {
+    // Con el trapecio por defecto el horizonte cae cerca de y = 0.074: del otro
+    // lado la homografia devuelve metros espejados, positivos y "creibles".
+    expect(p.toWorld({ x: 0.5, y: 0 })).toBeNull();
+    expect(p.toWorld({ x: 0.5, y: 0.05 })).toBeNull();
+  });
+
+  it("devuelve null pegado al horizonte, donde un pixel son decenas de metros", () => {
+    expect(p.toWorld({ x: 0.5, y: 0.08 })).toBeNull();
+  });
+
+  it("sigue proyectando por debajo del horizonte, dentro y fuera de la zona", () => {
+    expect(p.toWorld({ x: 0.5, y: 0.2 })).not.toBeNull();
+    const near = p.toWorld({ x: 0.5, y: 0.99 })!;
+    expect(near).not.toBeNull();
+    // Mas cerca de la camara que el borde cercano de la zona (y = 25 m).
+    expect(near.y).toBeGreaterThan(25);
+  });
+
+  it("la lejania crece de forma monotona al acercarse al horizonte", () => {
+    const ys = [0.9, 0.6, 0.4, 0.3, 0.2, 0.15].map((y) => p.toWorld({ x: 0.5, y })!.y);
+    for (let i = 1; i < ys.length; i++) expect(ys[i]).toBeLessThan(ys[i - 1]);
   });
 });
 

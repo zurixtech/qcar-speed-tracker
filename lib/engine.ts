@@ -56,6 +56,16 @@ const STICKY_BONUS = 1.5;
 /** Un auto dentro de la zona calibrada es el que interesa: es el unico medible. */
 const IN_ZONE_BONUS = 1.6;
 
+/**
+ * Un salto hacia adelante de mas de esta cantidad de `maxMissedMs` se trata
+ * como otra linea de tiempo (pestana pausada, seek en un archivo): ningun track
+ * puede sobrevivir a ese hueco y el historial viejo solo contamina el ajuste.
+ */
+const TIMELINE_GAP_FACTOR = 10;
+
+/** Tope de vehiculos por CLAUDE.md: en una pantalla de celular mas no se leen. */
+const MAX_VEHICLES_CAP = 2;
+
 type TrackState = {
   ema: number | null;
   peak: number | null;
@@ -63,6 +73,12 @@ type TrackState = {
   violated: boolean;
   /** Con que escala se obtuvo la ultima lectura que alimento al EMA. */
   source?: SpeedSource;
+  /**
+   * Ya se midio sobre la zona alguna vez. Va aparte de `source` porque un
+   * cambio de calibracion reinicia la lectura pero no habilita a la escala
+   * aproximada a volver a leer un vehiculo que la zona ya midio.
+   */
+  zoneMeasured?: boolean;
 };
 
 export type EngineFrame = {
@@ -80,6 +96,17 @@ export class RadarEngine {
   /** Ids elegidos en el frame anterior: dan la histeresis de `priority`. */
   private selected = new Set<number>();
   private options: EngineOptions;
+  /** Timestamp y resultado del ultimo frame procesado, para detectar saltos. */
+  private lastT: number | null = null;
+  private lastFrame: EngineFrame | null = null;
+  /** Proyector del frame anterior: si cambia, las lecturas viejas ya no valen. */
+  private lastProjector: Projector | null | undefined = undefined;
+  /**
+   * Secuencia de infracciones. No se reinicia con `reset()`: los ids de track y
+   * los timestamps de un archivo vuelven a empezar al repetir el video, y la
+   * lista de infracciones de la UI sobrevive a eso.
+   */
+  private violationSeq = 0;
 
   constructor(options: Partial<EngineOptions> = {}) {
     this.options = { ...DEFAULT_ENGINE_OPTIONS, ...options };
@@ -95,6 +122,9 @@ export class RadarEngine {
     this.tracker.reset();
     this.state.clear();
     this.selected.clear();
+    this.lastT = null;
+    this.lastFrame = null;
+    this.lastProjector = undefined;
   }
 
   /**
@@ -105,6 +135,30 @@ export class RadarEngine {
    */
   update(detections: readonly Detection[], t: number, projector: Projector | null): EngineFrame {
     const opts = this.options;
+
+    // Un frame repetido (video pausado, rAF mas rapido que el video) no aporta
+    // nada y, si entrara al tracker, apilaria muestras con el mismo t.
+    if (this.lastFrame && (t === this.lastT || !Number.isFinite(t))) {
+      return { ...this.lastFrame, newViolations: [] };
+    }
+    if (!Number.isFinite(t)) return { vehicles: [], detected: 0, newViolations: [] };
+
+    // Rebobinado (video en loop, cambio de fuente) o salto grande: el tracker
+    // mezclaria dos lineas de tiempo y dejaria fantasmas vivos un loop entero.
+    if (this.lastT !== null && (t < this.lastT || t - this.lastT > this.timelineGapMs())) {
+      this.reset();
+    }
+    this.lastT = t;
+
+    // Con otra calibracion (o sin ella) el EMA viejo esta en otra escala: se
+    // arranca de nuevo, pero sin olvidar que infracciones ya se labraron.
+    if (projector !== this.lastProjector) {
+      if (this.lastProjector !== undefined) {
+        for (const st of this.state.values()) restartReadings(st);
+      }
+      this.lastProjector = projector;
+    }
+
     const tracks = this.tracker.update(detections, t);
     const live = new Set<number>();
     for (const track of tracks) live.add(track.id);
@@ -131,30 +185,40 @@ export class RadarEngine {
       // ultimo valor bueno, en vez de saltar a una estimacion peor justo cuando
       // el auto se va de cuadro.
       const estimate: SpeedEstimate =
-        st.source === "zone" && raw.source === "auto" ? { mps: null, quality: 0 } : raw;
+        st.zoneMeasured && raw.source === "auto" ? { mps: null, quality: 0 } : raw;
 
       if (estimate.mps !== null) {
+        // Las dos escalas no se mezclan: si el vehiculo pasa de la aproximada a
+        // la calibrada, el EMA y el pico arrancan de cero sobre la buena.
+        if (st.source !== undefined && st.source !== estimate.source) restartReadings(st);
         st.ema = st.ema === null ? estimate.mps : st.ema + opts.smoothing * (estimate.mps - st.ema);
         st.peak = st.peak === null ? st.ema : Math.max(st.peak, st.ema);
         st.source = estimate.source;
+        if (estimate.source === "zone") st.zoneMeasured = true;
       }
 
       const mps = st.ema;
       const confirmed = track.hits >= opts.minHits;
       const speeding = mps !== null && mps > opts.limitMps;
 
-      if (speeding && confirmed && estimate.quality >= opts.minQuality) st.above++;
+      // Solo una lectura sobre la zona calibrada puede confirmar la infraccion:
+      // la escala automatica pinta la caja en rojo, pero es +-20-30 % y no
+      // alcanza para labrar nada.
+      const countable = estimate.source === "zone" && estimate.quality >= opts.minQuality;
+      if (speeding && confirmed && countable) st.above++;
       else if (!speeding) st.above = 0;
 
       if (!st.violated && st.above >= opts.confirmReadings && mps !== null) {
         st.violated = true;
         newViolations.push({
-          id: `${track.id}-${Math.round(t)}`,
+          id: `${track.id}-${Math.round(t)}-${++this.violationSeq}`,
           trackId: track.id,
           label: track.label,
           mps,
           limitMps: opts.limitMps,
           at: Date.now(),
+          // Siempre "zone": `above` solo cuenta lecturas calibradas.
+          source: "zone",
         });
       }
 
@@ -183,22 +247,36 @@ export class RadarEngine {
       if (!live.has(id)) this.state.delete(id);
     }
 
-    return { vehicles, detected: visible.length, newViolations };
+    this.lastFrame = { vehicles, detected: visible.length, newViolations };
+    return this.lastFrame;
+  }
+
+  private timelineGapMs(): number {
+    return this.tracker.getOptions().maxMissedMs * TIMELINE_GAP_FACTOR;
   }
 
   /**
    * Se queda con los `maxVehicles` vehiculos que importan. El criterio es el
    * tamano de la caja (el auto mas grande es el mas cercano a la camara, el
    * unico que se mide bien), con premio para el que esta dentro de la zona
-   * calibrada y para el que ya veniamos siguiendo.
+   * calibrada y para el que ya veniamos siguiendo. Un track sin confirmar
+   * (posible falso positivo de un frame) solo ocupa un lugar que sobre.
    */
   private select(tracks: readonly Track[], projector: Projector | null): Track[] {
-    const limit = Math.max(1, Math.round(this.options.maxVehicles));
+    const requested = Math.round(this.options.maxVehicles);
+    const limit = Number.isFinite(requested)
+      ? Math.min(MAX_VEHICLES_CAP, Math.max(1, requested))
+      : MAX_VEHICLES_CAP;
     if (tracks.length <= limit) return [...tracks];
 
+    const minHits = this.options.minHits;
     return [...tracks]
-      .map((track) => ({ track, priority: this.priority(track, projector) }))
-      .sort((a, b) => b.priority - a.priority)
+      .map((track) => ({
+        track,
+        confirmed: track.hits >= minHits,
+        priority: this.priority(track, projector),
+      }))
+      .sort((a, b) => Number(b.confirmed) - Number(a.confirmed) || b.priority - a.priority)
       .slice(0, limit)
       .map((entry) => entry.track);
   }
@@ -211,4 +289,11 @@ export class RadarEngine {
     if (this.selected.has(track.id)) score *= STICKY_BONUS;
     return score;
   }
+}
+
+function restartReadings(st: TrackState): void {
+  st.ema = null;
+  st.peak = null;
+  st.above = 0;
+  st.source = undefined;
 }

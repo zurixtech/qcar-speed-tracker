@@ -134,7 +134,7 @@ test.describe("pipeline de deteccion", () => {
     expect(await rows.count()).toBeGreaterThan(0);
     // Cada fila muestra la velocidad medida y el limite vigente.
     await expect(rows.first()).toContainText("km/h");
-    await expect(rows.first()).toContainText("limite 1");
+    await expect(rows.first()).toContainText("límite 1");
   });
 
   test("no registra infracciones con un limite inalcanzable", async ({ page }) => {

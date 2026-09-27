@@ -42,6 +42,13 @@ export const DEFAULT_TRACKER_OPTIONS: TrackerOptions = {
   historyMs: 3000,
 };
 
+/**
+ * Tope duro de muestras por track. La poda por tiempo no alcanza si llegan
+ * frames con el mismo timestamp o a mas fps de lo previsto, y el ajuste de
+ * velocidad recorre todo el historial en cada frame.
+ */
+export const MAX_TRACK_SAMPLES = 256;
+
 export function bboxCenter(b: BBox): Point {
   return { x: b.x + b.w / 2, y: b.y + b.h / 2 };
 }
@@ -138,6 +145,10 @@ export class VehicleTracker {
     this.options = { ...this.options, ...options };
   }
 
+  getOptions(): Readonly<TrackerOptions> {
+    return this.options;
+  }
+
   reset(): void {
     this.tracks = [];
     this.nextId = 1;
@@ -201,7 +212,10 @@ export class VehicleTracker {
       });
     }
 
-    // 5. Poda de tracks muertos y de historial viejo.
+    // 5. Poda de tracks muertos y de historial viejo. Va despues del matching
+    // a proposito: a 2 fps el hueco entre frames ya supera `maxMissedMs`, y
+    // podar antes mataria todos los tracks sin dejarlos juntar historial. Los
+    // huecos grandes de verdad los corta el motor (ver TIMELINE_GAP_FACTOR).
     this.tracks = this.tracks.filter((tr) => t - tr.lastSeen <= maxMissedMs);
     for (const tr of this.tracks) {
       const cutoff = t - historyMs;
@@ -211,6 +225,7 @@ export class VehicleTracker {
         const idx = keepFrom < 0 ? tr.samples.length - 2 : Math.min(keepFrom, tr.samples.length - 2);
         if (idx > 0) tr.samples = tr.samples.slice(idx);
       }
+      if (tr.samples.length > MAX_TRACK_SAMPLES) tr.samples = tr.samples.slice(-MAX_TRACK_SAMPLES);
     }
 
     return this.tracks;

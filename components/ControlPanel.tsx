@@ -29,8 +29,8 @@ export default function ControlPanel({
   return (
     <div className="space-y-4 pb-2">
       <Section
-        title="Vehiculos a seguir"
-        hint="El radar mide el auto mas grande del cuadro (el mas cercano) y, si elegis dos, tambien al que lo sigue."
+        title="Vehículos a seguir"
+        hint="El radar mide el auto más grande del cuadro (el más cercano) y, si elegís dos, también al que lo sigue."
       >
         <div className="grid grid-cols-2 gap-2">
           {([1, 2] as const).map((n) => (
@@ -52,11 +52,12 @@ export default function ControlPanel({
         </div>
       </Section>
 
-      <Section title="Limite de velocidad">
+      <Section title="Límite de velocidad">
         <div className="flex items-center gap-3">
           <input
             type="number"
             data-testid="speed-limit"
+            aria-label="Límite de velocidad"
             min={1}
             max={400}
             value={settings.speedLimit}
@@ -69,8 +70,9 @@ export default function ControlPanel({
                 key={u}
                 type="button"
                 data-testid={`units-${u}`}
+                aria-pressed={settings.units === u}
                 onClick={() => onChange({ units: u })}
-                className={`px-4 py-2.5 text-sm font-medium transition ${
+                className={`flex min-h-11 items-center justify-center px-4 py-2.5 text-sm font-medium transition ${
                   settings.units === u ? "bg-sky-500 text-white" : "text-slate-400 hover:text-white"
                 }`}
               >
@@ -87,7 +89,7 @@ export default function ControlPanel({
           value={settings.speedLimit}
           onChange={(e) => onChange({ speedLimit: Number(e.target.value) })}
           className="mt-4 h-6 w-full accent-sky-500"
-          aria-label="Limite de velocidad"
+          aria-label="Límite de velocidad (deslizador)"
         />
       </Section>
 
@@ -140,9 +142,10 @@ export default function ControlPanel({
         {!calibrationValid && (
           <p
             data-testid="calibration-warning"
+            role="alert"
             className="mt-2 rounded-lg bg-red-500/15 px-3 py-2 text-xs text-red-300"
           >
-            La zona esta cruzada o es demasiado chica. Acomoda las 4 esquinas en orden:
+            La zona está cruzada o es demasiado chica. Acomodá las 4 esquinas en orden:
             1 y 2 en el extremo lejano, 3 y 4 en el cercano.
           </p>
         )}
@@ -168,14 +171,14 @@ export default function ControlPanel({
           />
         </div>
         <p className="mt-2 text-xs leading-relaxed text-slate-400">
-          Referencia rapida: un carril suele medir 3,5 m de ancho y la linea blanca
-          discontinua de ruta 4,5 m con 7,5 m de separacion.
+          Referencia rápida: un carril suele medir 3,5 m de ancho y la línea blanca
+          discontinua de ruta 4,5 m con 7,5 m de separación.
         </p>
       </Section>
 
-      <Section title="Deteccion">
+      <Section title="Detección">
         <RangeField
-          label="Confianza minima"
+          label="Confianza mínima"
           testId="min-score"
           value={settings.minScore}
           min={0.1}
@@ -213,12 +216,12 @@ export default function ControlPanel({
             onChange={(e) => onChange({ modelVariant: e.target.value as Settings["modelVariant"] })}
             className="mt-1 w-full rounded-lg border border-edge bg-ink px-3 py-2 text-sm text-slate-100 disabled:opacity-50"
           >
-            <option value="lite_mobilenet_v2">Lite MobileNet V2 (rapido)</option>
-            <option value="mobilenet_v2">MobileNet V2 (mas preciso)</option>
+            <option value="lite_mobilenet_v2">Lite MobileNet V2 (rápido)</option>
+            <option value="mobilenet_v2">MobileNet V2 (más preciso)</option>
           </select>
           {modelLocked && (
-            <span className="mt-1 block text-[11px] text-slate-500">
-              Detene la sesion para cambiar de modelo.
+            <span className="mt-1 block text-[11px] text-slate-400">
+              Detené la sesión para cambiar de modelo.
             </span>
           )}
         </label>
@@ -255,7 +258,7 @@ export default function ControlPanel({
         type="button"
         data-testid="reset-settings"
         onClick={onReset}
-        className="w-full rounded-lg border border-edge px-3 py-2 text-xs text-slate-400 transition hover:bg-panel hover:text-slate-200"
+        className="flex min-h-11 w-full items-center justify-center rounded-lg border border-edge px-3 text-xs text-slate-400 transition hover:bg-panel hover:text-slate-200"
       >
         Restaurar valores por defecto ({DEFAULT_SETTINGS.speedLimit} km/h)
       </button>
@@ -366,7 +369,7 @@ function Toggle({
   testId: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-center justify-between py-2.5 text-sm text-slate-300">
+    <label className="flex min-h-11 cursor-pointer items-center justify-between py-2.5 text-sm text-slate-300">
       {label}
       <input
         type="checkbox"

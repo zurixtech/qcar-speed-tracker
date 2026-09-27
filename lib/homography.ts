@@ -77,7 +77,11 @@ export function computeHomography(src: Quad, dst: Quad): Homography | null {
   }
 }
 
-/** Aplica la homografia a un punto. Devuelve null si cae sobre/detras del horizonte. */
+/**
+ * Aplica la homografia a un punto. Devuelve null solo si cae justo sobre la
+ * recta del horizonte (w ~ 0); que el punto este del lado correcto lo decide
+ * `createProjector`, que conoce el lado de la zona.
+ */
 export function applyHomography(h: Homography, p: Point): Point | null {
   const w = h[6] * p.x + h[7] * p.y + h[8];
   if (!Number.isFinite(w) || Math.abs(w) < EPS) return null;
@@ -122,6 +126,11 @@ export function isUsableQuad(quad: Quad, minArea = 1e-3): boolean {
 
 /** Test punto-en-poligono (ray casting). Los bordes cuentan como dentro. */
 export function pointInPolygon(p: Point, poly: readonly Point[]): boolean {
+  // El ray casting solo es consistente con los bordes izquierdo/superior; sin
+  // este chequeo un auto apoyado justo en el borde cercano quedaba "afuera".
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    if (onSegment(p, poly[j], poly[i])) return true;
+  }
   let inside = false;
   for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
     const a = poly[i];
@@ -133,6 +142,23 @@ export function pointInPolygon(p: Point, poly: readonly Point[]): boolean {
   }
   return inside;
 }
+
+function onSegment(p: Point, a: Point, b: Point): boolean {
+  const cross = (b.x - a.x) * (p.y - a.y) - (b.y - a.y) * (p.x - a.x);
+  if (Math.abs(cross) > EPS) return false;
+  return (
+    p.x >= Math.min(a.x, b.x) - EPS &&
+    p.x <= Math.max(a.x, b.x) + EPS &&
+    p.y >= Math.min(a.y, b.y) - EPS &&
+    p.y <= Math.max(a.y, b.y) + EPS
+  );
+}
+
+/**
+ * Fraccion del w del centro de la zona por debajo de la cual el punto esta tan
+ * pegado al horizonte que un pixel de ruido son decenas de metros.
+ */
+const MIN_W_RATIO = 0.05;
 
 /** Proyector listo para usar, derivado de una calibracion. */
 export type Projector = {
@@ -154,8 +180,19 @@ export function createProjector(cal: Calibration): Projector | null {
   if (!h) return null;
   const inv = computeHomography(dst, cal.quad);
 
+  // El denominador w cambia de signo al cruzar el horizonte: del otro lado la
+  // homografia devuelve posiciones finitas pero espejadas. La zona fija cual es
+  // el lado bueno.
+  const cx = (cal.quad[0].x + cal.quad[1].x + cal.quad[2].x + cal.quad[3].x) / 4;
+  const cy = (cal.quad[0].y + cal.quad[1].y + cal.quad[2].y + cal.quad[3].y) / 4;
+  const wCenter = h[6] * cx + h[7] * cy + h[8];
+  const sameSide = (p: Point) => {
+    const w = h[6] * p.x + h[7] * p.y + h[8];
+    return Math.sign(w) === Math.sign(wCenter) && Math.abs(w) >= MIN_W_RATIO * Math.abs(wCenter);
+  };
+
   return {
-    toWorld: (p) => applyHomography(h, p),
+    toWorld: (p) => (sameSide(p) ? applyHomography(h, p) : null),
     inZone: (p) => pointInPolygon(p, cal.quad),
     toImage: (p) => (inv ? applyHomography(inv, p) : null),
   };

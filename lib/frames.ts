@@ -9,7 +9,12 @@
  * mas lento que la reproduccion.
  */
 
-export type FrameCallback = (timestampMs: number) => void | Promise<void>;
+/**
+ * `isActive` vale false en cuanto se cancela el bucle. El callback lo tiene que
+ * consultar despues de cada `await`: un frame en vuelo al momento de detener
+ * no debe tocar el motor ni dibujar cajas viejas sobre la fuente nueva.
+ */
+export type FrameCallback = (timestampMs: number, isActive: () => boolean) => void | Promise<void>;
 
 type VideoWithRVFC = HTMLVideoElement & {
   requestVideoFrameCallback?: (
@@ -35,10 +40,12 @@ export function runFrameLoop(video: HTMLVideoElement, cb: FrameCallback): () => 
 
   const useRvfc = supportsVideoFrameCallback(video);
 
+  const isActive = () => !cancelled;
+
   const step = async (timestampMs: number) => {
     if (cancelled) return;
     try {
-      await cb(timestampMs);
+      await cb(timestampMs, isActive);
     } catch (err) {
       console.error("[frames] error procesando frame", err);
     }
