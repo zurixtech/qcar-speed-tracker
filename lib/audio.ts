@@ -10,21 +10,42 @@ function getContext(): AudioContext | null {
   return ctx;
 }
 
-/** Los navegadores exigen un gesto del usuario antes de reproducir audio. */
-export async function unlockAudio(): Promise<void> {
+/**
+ * Los navegadores exigen un gesto del usuario antes de reproducir audio, y iOS
+ * solo lo acepta si `resume()` se llama sincronicamente dentro del handler del
+ * toque: por eso hay que llamar a esta funcion ANTES del primer `await`. La
+ * promesa que devuelve se puede ignorar.
+ */
+export function unlockAudio(): Promise<void> {
   const audio = getContext();
-  if (audio && audio.state === "suspended") {
-    try {
-      await audio.resume();
-    } catch {
-      // Si no se puede desbloquear, simplemente no suena.
-    }
-  }
+  // iOS usa el estado "interrupted" (llamada, Siri) ademas de "suspended".
+  if (!audio || audio.state === "running" || audio.state === "closed") return Promise.resolve();
+  return audio.resume().catch(() => {
+    // Si no se puede desbloquear, simplemente no suena.
+  });
+}
+
+/**
+ * Re-desbloquea el audio con cualquier toque en la pantalla: iOS vuelve a
+ * suspender el contexto tras una interrupcion y el siguiente gesto lo revive.
+ * Devuelve la funcion para quitar el listener.
+ */
+export function installAudioUnlock(): () => void {
+  if (typeof document === "undefined") return () => {};
+  const onPointerDown = () => {
+    // Solo si ya existe: crear el contexto sin que haya radar no aporta nada.
+    if (ctx && ctx.state !== "running") void unlockAudio();
+  };
+  document.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true });
+  return () => document.removeEventListener("pointerdown", onPointerDown, { capture: true });
 }
 
 export function playAlert(): void {
   const audio = getContext();
-  if (!audio || audio.state !== "running") return;
+  if (!audio || audio.state === "closed") return;
+  // Fuera de un gesto el resume puede fallar; si funciona, el bip agendado
+  // suena igual porque el reloj del contexto arranca desde donde quedo.
+  if (audio.state !== "running") void unlockAudio();
 
   const now = audio.currentTime;
   const gain = audio.createGain();
