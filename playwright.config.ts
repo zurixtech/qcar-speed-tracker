@@ -48,7 +48,11 @@ export default defineConfig({
     command: `npm run build && npm run start`,
     url: BASE_URL,
     timeout: 300_000,
-    reuseExistingServer: !process.env.CI,
+    // Por defecto SIEMPRE levanta un server nuevo: CLAUDE.md avisa que
+    // reusar uno viejo sirve un build anterior y da fallos raros. Se
+    // reusa solo si alguien lo pide a proposito (por ejemplo, para
+    // iterar rapido en local).
+    reuseExistingServer: process.env.PW_REUSE_SERVER === "1",
     env: { PORT: String(PORT) },
     stdout: "pipe",
     stderr: "pipe",
