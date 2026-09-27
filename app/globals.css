@@ -13,6 +13,9 @@ body {
   -webkit-tap-highlight-color: transparent;
   /* La app ocupa la pantalla: nada de scroll de pagina ni rebote elastico. */
   overscroll-behavior: none;
+  /* Deja el pinch-zoom del sistema (WCAG 1.4.4) pero saca el delay de doble
+     tap, que en un boton grande de celular se siente como que no responde. */
+  touch-action: manipulation;
 }
 
 body {
