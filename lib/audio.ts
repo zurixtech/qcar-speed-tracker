@@ -43,9 +43,13 @@ export function installAudioUnlock(): () => void {
 export function playAlert(): void {
   const audio = getContext();
   if (!audio || audio.state === "closed") return;
-  // Fuera de un gesto el resume puede fallar; si funciona, el bip agendado
-  // suena igual porque el reloj del contexto arranca desde donde quedo.
-  if (audio.state !== "running") void unlockAudio();
+  // Con el contexto suspendido no se agenda nada: el reloj esta congelado y
+  // los bips se apilarian para sonar todos juntos en el proximo toque. Se
+  // intenta reanudar para la siguiente alerta y esta se pierde.
+  if (audio.state !== "running") {
+    void unlockAudio();
+    return;
+  }
 
   const now = audio.currentTime;
   const gain = audio.createGain();

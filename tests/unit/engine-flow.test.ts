@@ -149,6 +149,28 @@ describe("las dos escalas no se mezclan", () => {
     expect(toKmh(after.mps!)).toBeCloseTo(120, 0);
     expect(toKmh(after.peakMps!)).toBeCloseTo(120, 0);
   });
+
+  it("cambiar la calibracion no habilita a la escala automatica a releer un vehiculo ya medido en zona", () => {
+    const engine = new RadarEngine();
+    const frames = simulateApproach({ mps: fromKmh(60), frames: 40 });
+    // Una zona chica en otro lado del cuadro: el auto queda afuera.
+    const lejos = createProjector({
+      ...SCENE_CALIBRATION,
+      quad: [
+        { x: 0.05, y: 0.05 },
+        { x: 0.2, y: 0.05 },
+        { x: 0.2, y: 0.15 },
+        { x: 0.05, y: 0.15 },
+      ],
+    })!;
+
+    engine.update([], frames[0].t - 100, projector);
+    for (const f of frames.slice(0, 25)) engine.update(f.detections, f.t, projector);
+    for (const f of frames.slice(25)) {
+      const v = engine.update(f.detections, f.t, lejos).vehicles[0];
+      expect(v?.source).not.toBe("auto");
+    }
+  });
 });
 
 describe("flujo de infracciones", () => {

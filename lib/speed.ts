@@ -66,7 +66,9 @@ const AUTO_QUALITY_PENALTY = 0.75;
  * Margen contra el borde del cuadro. COCO-SSD recorta las cajas a la imagen:
  * un auto que sale por un costado se "achica" y la escala automatica lo lee
  * como alejandose rapido; uno cortado abajo pierde el punto de contacto con la
- * calzada. En ambos casos la muestra miente y se descarta.
+ * calzada, y uno cortado de costado corre el centro de su base (el punto que
+ * mide la zona) a la mitad de la velocidad real. En todos los casos la muestra
+ * miente y se descarta.
  */
 const EDGE_MARGIN = 0.005;
 
@@ -128,7 +130,7 @@ export function estimateSpeed(
 function measureInZone(track: Track, projector: Projector, options: SpeedOptions): SpeedEstimate {
   let outside = 0;
   const fit = fitWindow(track, options, (s) => {
-    if (clippedBottom(s)) return null;
+    if (clippedBottom(s) || clippedSides(s)) return null;
     if (options.requireInZone && !projector.inZone(s.ground)) {
       outside++;
       return null;

@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { STORAGE_KEY } from "@/lib/settings";
+import { restoreDefaultSettings } from "@/lib/settingsStore";
 
 /**
  * Limite de errores de Next: si algo revienta en el render (por ejemplo un
@@ -42,11 +42,7 @@ export default function ErrorBoundary({
             type="button"
             data-testid="error-reset-settings"
             onClick={() => {
-              try {
-                window.localStorage.removeItem(STORAGE_KEY);
-              } catch {
-                // localStorage puede no estar disponible (privado, cuota); no bloquea el reintento.
-              }
+              restoreDefaultSettings();
               reset();
             }}
             className="min-h-11 w-full rounded-2xl border border-edge py-3 text-sm font-medium text-slate-200 active:bg-panel"

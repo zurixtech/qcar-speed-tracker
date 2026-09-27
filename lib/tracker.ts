@@ -212,7 +212,10 @@ export class VehicleTracker {
       });
     }
 
-    // 5. Poda de tracks muertos y de historial viejo.
+    // 5. Poda de tracks muertos y de historial viejo. Va despues del matching
+    // a proposito: a 2 fps el hueco entre frames ya supera `maxMissedMs`, y
+    // podar antes mataria todos los tracks sin dejarlos juntar historial. Los
+    // huecos grandes de verdad los corta el motor (ver TIMELINE_GAP_FACTOR).
     this.tracks = this.tracks.filter((tr) => t - tr.lastSeen <= maxMissedMs);
     for (const tr of this.tracks) {
       const cutoff = t - historyMs;

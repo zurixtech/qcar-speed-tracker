@@ -15,7 +15,7 @@
  *
  *   node scripts/fetch-model.mjs [lite_mobilenet_v2|mobilenet_v2] ...
  */
-import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import path from "node:path";
 
@@ -65,11 +65,40 @@ async function verify(variant, name, file) {
 }
 
 async function download(url, dest) {
-  const res = await fetch(url);
+  const res = await fetch(url, { signal: AbortSignal.timeout(120_000) });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText} al bajar ${url}`);
   const buf = Buffer.from(await res.arrayBuffer());
-  await writeFile(dest, buf);
+  // Primero a un temporal: un build cortado a mitad no deja un archivo trunco
+  // con el nombre final, que la proxima corrida tomaria por bueno.
+  const tmp = `${dest}.part`;
+  await writeFile(tmp, buf);
+  await rename(tmp, dest);
   return buf.length;
+}
+
+/**
+ * Deja `name` bajado y verificado. Si ya estaba pero no coincide con el hash,
+ * se baja de nuevo una vez en lugar de solo avisar: si no, un archivo corrupto
+ * no se reparaba nunca. Devuelve false si no quedo bien.
+ */
+async function ensureFile(variant, prefix, outDir, name) {
+  const dest = path.join(outDir, name);
+  if ((await exists(dest)) && (await verify(variant, name, dest)) !== false) {
+    console.log(`  ${name}  (ya estaba)`);
+    return { ok: true, bytes: 0 };
+  }
+  try {
+    const bytes = await download(`${BASE_URL}/${prefix}/${name}`, dest);
+    if ((await verify(variant, name, dest)) === false) {
+      console.warn(`  ! ${name} no coincide con el hash esperado`);
+      return { ok: false, bytes };
+    }
+    console.log(`  ${name}  ${(bytes / 1024 / 1024).toFixed(1)} MB`);
+    return { ok: true, bytes };
+  } catch (err) {
+    console.warn(`  ! no se pudo bajar ${name}: ${err.message}`);
+    return { ok: false, bytes: 0 };
+  }
 }
 
 async function fetchVariant(variant) {
@@ -79,53 +108,19 @@ async function fetchVariant(variant) {
   const outDir = path.join(OUT_ROOT, variant);
   await mkdir(outDir, { recursive: true });
 
-  const manifestPath = path.join(outDir, "model.json");
   let ok = true;
-
-  if (!(await exists(manifestPath))) {
-    try {
-      const bytes = await download(`${BASE_URL}/${prefix}/model.json`, manifestPath);
-      console.log(`  model.json  ${(bytes / 1024).toFixed(0)} KB`);
-    } catch (err) {
-      console.warn(`  ! no se pudo bajar model.json: ${err.message}`);
-      console.warn(`  la app va a usar el CDN de Google como respaldo en tiempo de ejecucion.`);
-      return;
-    }
-  } else {
-    console.log("  model.json  (ya estaba)");
-  }
-
-  const verifiedManifest = await verify(variant, "model.json", manifestPath);
-  if (verifiedManifest === false) {
-    console.warn("  ! model.json no coincide con el hash esperado (posible descarga corrupta)");
-    ok = false;
-  }
-
-  // Los shards se listan en el manifiesto, con rutas relativas a model.json.
-  const manifest = JSON.parse(await readFile(manifestPath, "utf8"));
-  const shards = manifest.weightsManifest.flatMap((group) => group.paths);
-
   let total = 0;
-  for (const shard of shards) {
-    const dest = path.join(outDir, shard);
-    if (await exists(dest)) {
-      console.log(`  ${shard}  (ya estaba)`);
-    } else {
-      try {
-        const bytes = await download(`${BASE_URL}/${prefix}/${shard}`, dest);
-        total += bytes;
-        console.log(`  ${shard}  ${(bytes / 1024 / 1024).toFixed(1)} MB`);
-      } catch (err) {
-        console.warn(`  ! no se pudo bajar ${shard}: ${err.message}`);
-        ok = false;
-        continue;
-      }
-    }
+  const manifest = await ensureFile(variant, prefix, outDir, "model.json");
+  ok = manifest.ok;
+  total += manifest.bytes;
 
-    const verified = await verify(variant, shard, dest);
-    if (verified === false) {
-      console.warn(`  ! ${shard} no coincide con el hash esperado (posible descarga corrupta)`);
-      ok = false;
+  if (ok) {
+    // Los shards se listan en el manifiesto, con rutas relativas a model.json.
+    const parsed = JSON.parse(await readFile(path.join(outDir, "model.json"), "utf8"));
+    for (const shard of parsed.weightsManifest.flatMap((group) => group.paths)) {
+      const result = await ensureFile(variant, prefix, outDir, shard);
+      total += result.bytes;
+      if (!result.ok) ok = false;
     }
   }
 
@@ -135,11 +130,16 @@ async function fetchVariant(variant) {
         ? `✓ ${variant}: ${(total / 1024 / 1024).toFixed(1)} MB en public/models/coco-ssd/${variant}`
         : `✓ ${variant}: ya estaba completo y verificado`,
     );
-  } else {
-    console.warn(
-      `! ${variant}: quedo incompleto o con archivos sospechosos; la app va a usar el CDN de Google como respaldo.`,
-    );
+    return;
   }
+
+  // La app decide entre modelo local y CDN mirando solo si existe model.json:
+  // un modelo a medias se serviria igual y fallaria en el navegador sin caer
+  // al respaldo. Se borra entero para que el respaldo funcione de verdad.
+  await rm(outDir, { recursive: true, force: true });
+  console.warn(
+    `! ${variant}: quedo incompleto o con archivos corruptos y se borro; la app va a usar el CDN de Google como respaldo.`,
+  );
 }
 
 const variants = process.argv.slice(2);

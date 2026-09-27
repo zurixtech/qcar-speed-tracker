@@ -2,7 +2,7 @@
 
 import { useEffect } from "react";
 
-import { STORAGE_KEY } from "@/lib/settings";
+import { restoreDefaultSettings } from "@/lib/settingsStore";
 
 /**
  * Red de salvataje si revienta el layout mismo (error.tsx no cubre eso: React
@@ -65,11 +65,7 @@ export default function GlobalError({
               type="button"
               data-testid="error-reset-settings"
               onClick={() => {
-                try {
-                  window.localStorage.removeItem(STORAGE_KEY);
-                } catch {
-                  // sin localStorage no hay nada que restaurar; igual reintentamos.
-                }
+                restoreDefaultSettings();
                 reset();
               }}
               style={{

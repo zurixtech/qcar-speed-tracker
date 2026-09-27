@@ -73,6 +73,12 @@ type TrackState = {
   violated: boolean;
   /** Con que escala se obtuvo la ultima lectura que alimento al EMA. */
   source?: SpeedSource;
+  /**
+   * Ya se midio sobre la zona alguna vez. Va aparte de `source` porque un
+   * cambio de calibracion reinicia la lectura pero no habilita a la escala
+   * aproximada a volver a leer un vehiculo que la zona ya midio.
+   */
+  zoneMeasured?: boolean;
 };
 
 export type EngineFrame = {
@@ -179,7 +185,7 @@ export class RadarEngine {
       // ultimo valor bueno, en vez de saltar a una estimacion peor justo cuando
       // el auto se va de cuadro.
       const estimate: SpeedEstimate =
-        st.source === "zone" && raw.source === "auto" ? { mps: null, quality: 0 } : raw;
+        st.zoneMeasured && raw.source === "auto" ? { mps: null, quality: 0 } : raw;
 
       if (estimate.mps !== null) {
         // Las dos escalas no se mezclan: si el vehiculo pasa de la aproximada a
@@ -188,6 +194,7 @@ export class RadarEngine {
         st.ema = st.ema === null ? estimate.mps : st.ema + opts.smoothing * (estimate.mps - st.ema);
         st.peak = st.peak === null ? st.ema : Math.max(st.peak, st.ema);
         st.source = estimate.source;
+        if (estimate.source === "zone") st.zoneMeasured = true;
       }
 
       const mps = st.ema;

@@ -7,7 +7,14 @@
  * despues se reconcilia solo con el valor guardado, sin mismatch de HTML ni un
  * setState extra dentro de un efecto.
  */
-import { DEFAULT_SETTINGS, loadSettings, sanitizeSettings, saveSettings, type Settings } from "./settings";
+import {
+  DEFAULT_SETTINGS,
+  STORAGE_KEY,
+  loadSettings,
+  sanitizeSettings,
+  saveSettings,
+  type Settings,
+} from "./settings";
 
 /**
  * Arrastrar una esquina de la calibracion dispara un update por pointermove;
@@ -83,6 +90,25 @@ function installPagehideFlush(): void {
 
 function flushWhenHidden(): void {
   if (typeof document !== "undefined" && document.visibilityState === "hidden") flushSettings();
+}
+
+/**
+ * Vuelve a los valores por defecto desde la pantalla de error. Borrar solo la
+ * clave no alcanza: el store tiene cacheado el valor en memoria (y quiza una
+ * escritura pendiente que lo volveria a guardar), asi que el reintento
+ * renderizaria la misma configuracion que rompio.
+ */
+export function restoreDefaultSettings(): void {
+  if (saveTimer !== null) clearTimeout(saveTimer);
+  saveTimer = null;
+  current = sanitizeSettings(DEFAULT_SETTINGS);
+  currentJson = JSON.stringify(current);
+  try {
+    window.localStorage.removeItem(STORAGE_KEY);
+  } catch {
+    // Sin localStorage (modo privado, cuota) igual quedan los defaults en memoria.
+  }
+  for (const listener of listeners) listener();
 }
 
 /** Solo para tests: vuelve el store a su estado inicial. */

@@ -1,10 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { DEFAULT_SETTINGS } from "@/lib/settings";
+import { DEFAULT_SETTINGS, STORAGE_KEY } from "@/lib/settings";
 import {
   flushSettings,
   getSettingsSnapshot,
   resetSettingsStore,
+  restoreDefaultSettings,
   SAVE_DEBOUNCE_MS,
   subscribeSettings,
   updateSettings,
@@ -107,5 +108,21 @@ describe("settingsStore", () => {
     flushSettings();
     const [, saved] = win.setItem.mock.calls[0];
     expect(JSON.parse(saved).speedLimit).toBe(400);
+  });
+
+  it("restaurar vuelve a los defaults en memoria y descarta la escritura pendiente", () => {
+    win.store.set(STORAGE_KEY, JSON.stringify({ ...DEFAULT_SETTINGS, speedLimit: 120 }));
+    expect(getSettingsSnapshot().speedLimit).toBe(120);
+    updateSettings((prev) => ({ ...prev, speedLimit: 130 }));
+    const listener = vi.fn();
+    const unsubscribe = subscribeSettings(listener);
+
+    restoreDefaultSettings();
+    vi.advanceTimersByTime(SAVE_DEBOUNCE_MS * 2);
+
+    expect(getSettingsSnapshot().speedLimit).toBe(DEFAULT_SETTINGS.speedLimit);
+    expect(listener).toHaveBeenCalledTimes(1);
+    expect(win.store.has(STORAGE_KEY)).toBe(false);
+    unsubscribe();
   });
 });

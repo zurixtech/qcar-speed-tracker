@@ -520,11 +520,17 @@ export function useRadar({ videoRef, canvasRef, settings }: UseRadarArgs) {
       video.play().then(
         () => {
           if (gen !== genRef.current || !runningRef.current) return;
+          if (document.visibilityState === "hidden") return;
           if (!stopLoopRef.current) startLoop();
           acquireWakeLock();
         },
         (err: unknown) => {
           if (gen !== genRef.current) return;
+          // Si la pagina se volvio a ocultar antes de que arranque, el pause()
+          // rechaza este play() con AbortError: no fallo nada, y el proximo
+          // "visible" lo reanuda.
+          const aborted = err instanceof DOMException && err.name === "AbortError";
+          if (aborted || document.visibilityState === "hidden") return;
           console.error("[radar] no se pudo reanudar", err);
           fail(describeError(err, sourceKindRef.current));
         },

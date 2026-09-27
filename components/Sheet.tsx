@@ -33,15 +33,6 @@ export default function Sheet({ open, title, onClose, children }: Props) {
     return () => window.removeEventListener("keydown", onKey);
   }, [open, onClose]);
 
-  useEffect(() => {
-    if (!open) return;
-    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
-    closeButtonRef.current?.focus();
-    return () => {
-      previouslyFocusedRef.current?.focus?.();
-    };
-  }, [open]);
-
   // El resto de la app (camara, nav) queda fuera del tab y del arbol de
   // accesibilidad mientras la hoja esta abierta, marcandolo `inert` en vez de
   // duplicar el manejo de foco boton por boton.
@@ -53,6 +44,18 @@ export default function Sheet({ open, title, onClose, children }: Props) {
     }
     return () => {
       for (const el of rest) el.removeAttribute("inert");
+    };
+  }, [open]);
+
+  // Declarado despues del efecto de inert a proposito: React corre las
+  // limpiezas en orden de declaracion, y enfocar un boton que sigue inert no
+  // hace nada.
+  useEffect(() => {
+    if (!open) return;
+    previouslyFocusedRef.current = document.activeElement as HTMLElement | null;
+    closeButtonRef.current?.focus();
+    return () => {
+      previouslyFocusedRef.current?.focus?.();
     };
   }, [open]);
 
